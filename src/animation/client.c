@@ -1,6 +1,7 @@
 #include "mango/animation/client.h"
 #include "mango/animation/common.h"
 #include "mango/common/server.h"
+#include "mango/layout/canvas.h"
 #include "mango/common/util.h"
 #include "mango/draw/title-message-bar.h"
 #include "mango/layout/dwindle.h"
@@ -93,8 +94,9 @@ void set_rect_size(struct wlr_scene_rect *rect, int32_t width, int32_t height) {
 	wlr_scene_rect_set_size(rect, GEZERO(width), GEZERO(height));
 }
 struct fx_corner_radii set_client_corner_location(Client *c) {
-	struct fx_corner_radii current_corner_location =
-		corner_radii_all(config.border_radius);
+	// radius scales with camera on canvas, config value everywhere else
+	int32_t radius = (int32_t)canvas_corner_radius(c->mon);
+	struct fx_corner_radii current_corner_location = corner_radii_all(radius);
 
 	if (client_no_radius_active(c))
 		return corner_radii_none();
@@ -104,20 +106,20 @@ struct fx_corner_radii set_client_corner_location(Client *c) {
 
 	struct wlr_box target_geom =
 		client_animations_enabled(c) ? c->animation.current : c->geom;
-	if (target_geom.x + config.border_radius <= c->mon->m.x) {
+	if (target_geom.x + radius <= c->mon->m.x) {
 		current_corner_location.top_left = 0;
 		current_corner_location.bottom_left = 0;
 	}
-	if (target_geom.x + target_geom.width - config.border_radius >=
+	if (target_geom.x + target_geom.width - radius >=
 		c->mon->m.x + c->mon->m.width) {
 		current_corner_location.top_right = 0;
 		current_corner_location.bottom_right = 0;
 	}
-	if (target_geom.y + config.border_radius <= c->mon->m.y) {
+	if (target_geom.y + radius <= c->mon->m.y) {
 		current_corner_location.top_left = 0;
 		current_corner_location.top_right = 0;
 	}
-	if (target_geom.y + target_geom.height - config.border_radius >=
+	if (target_geom.y + target_geom.height - radius >=
 		c->mon->m.y + c->mon->m.height) {
 		current_corner_location.bottom_left = 0;
 		current_corner_location.bottom_right = 0;
@@ -251,6 +253,31 @@ void set_client_open_animation(Client *c, struct wlr_box geo) {
 	}
 }
 
+// the part of a surface a scene buffer still shows after the wlroots clip, in
+// surface px. wlroots crops a subsurface that runs past the window clip by
+// shrinking src_box, so a dest size from the whole surface stretched what was
+// left over the cut part (100px of a subsurface hanging off the right edge
+// drew 300px wide, past the border)
+struct wlr_fbox scene_buffer_visible_box(struct wlr_scene_buffer *buffer,
+										 struct wlr_surface *surface) {
+	struct wlr_fbox vis = {0, 0, surface->current.width,
+						   surface->current.height};
+	struct wlr_fbox full, cur = buffer->src_box;
+	wlr_surface_get_buffer_source_box(surface, &full);
+	if (wlr_fbox_empty(&cur) || wlr_fbox_empty(&full))
+		return vis;
+	// same buffer to surface orientation wlroots uses for the crop
+	int32_t bw = surface->current.buffer_width;
+	int32_t bh = surface->current.buffer_height;
+	wlr_fbox_transform(&full, &full, surface->current.transform, bw, bh);
+	wlr_fbox_transform(&cur, &cur, surface->current.transform, bw, bh);
+	vis.x = (cur.x - full.x) / full.width * vis.width;
+	vis.y = (cur.y - full.y) / full.height * vis.height;
+	vis.width *= cur.width / full.width;
+	vis.height *= cur.height / full.height;
+	return vis;
+}
+
 void scene_buffer_apply_effect(struct wlr_scene_buffer *buffer, int32_t sx,
 							   int32_t sy, void *data) {
 	BufferData *buffer_data = (BufferData *)data;
@@ -279,8 +306,9 @@ void scene_buffer_apply_effect(struct wlr_scene_buffer *buffer, int32_t sx,
 		&& !wlr_xwayland_surface_try_from_wlr_surface(surface)
 #endif
 	) {
-		int32_t surface_width = surface->current.width;
-		int32_t surface_height = surface->current.height;
+		struct wlr_fbox vis = scene_buffer_visible_box(buffer, surface);
+		int32_t surface_width = (int32_t)lround(vis.width);
+		int32_t surface_height = (int32_t)lround(vis.height);
 
 		surface_width = buffer_data->width_scale < 1
 							? surface_width
@@ -714,6 +742,69 @@ void client_draw_split_border(Client *c, bool hit_no_border,
 	wlr_scene_node_set_position(&c->splitindicator[1]->node, border_right_x,
 								border_right_y);
 }
+// inner ring and gap for a border bw wide, iw 0 when there is one ring
+static int32_t inner_ring_width(int32_t bw, int32_t *gap) {
+	*gap = 0;
+	if (config.inner_borderpx == 0 || config.borderpx == 0 || bw <= 0)
+		return 0;
+	double f = (double)bw / (double)config.borderpx;
+	int32_t iw = (int32_t)lround(config.inner_borderpx * f);
+	*gap = (int32_t)lround(config.inner_border_gap * f);
+	if (iw < 1 || bw - iw - *gap < 1)
+		return *gap = 0;
+	return iw;
+}
+
+// double border. the outer ring stays c->border with its hole grown out to
+// its own inner edge, the inner ring is a rect of its own around the content
+// and the gap between them shows through. widths follow c->bw like the border
+// does at zoom, too thin for both rings and it is one border again
+// outer is c->border's clipped region, rect-local with the rect at left, top
+static void client_draw_inner_border(Client *c, struct wlr_box cur, int32_t bw,
+									 struct ivec2 offsets,
+									 struct clipped_region *outer) {
+	if (!c->border_inner)
+		return;
+	int32_t gap;
+	int32_t iw = inner_ring_width(bw, &gap);
+	int32_t left = offsets.x, right = offsets.width, top = offsets.y,
+			bottom = offsets.height;
+	// inner ring from bw - iw in, cut to the part of the window still shown
+	int32_t in = bw - iw;
+	int32_t x0 = MANGO_MAX(in, left), y0 = MANGO_MAX(in, top);
+	int32_t x1 = MANGO_MIN(cur.width - in, cur.width - right);
+	int32_t y1 = MANGO_MIN(cur.height - in, cur.height - bottom);
+	if (iw == 0 || x1 <= x0 || y1 <= y0) {
+		if (c->border_inner->node.enabled)
+			wlr_scene_node_set_enabled(&c->border_inner->node, false);
+		return;
+	}
+	if (!c->border_inner->node.enabled)
+		wlr_scene_node_set_enabled(&c->border_inner->node, true);
+
+	// content box in client coords, the inner ring's hole
+	struct wlr_box cb = outer->area;
+	cb.x += left;
+	cb.y += top;
+	struct clipped_region hole = {
+		.area = {cb.x - x0, cb.y - y0, cb.width, cb.height},
+		.corners = outer->corners,
+	};
+	wlr_scene_rect_set_size(c->border_inner, x1 - x0, y1 - y0);
+	wlr_scene_node_set_position(&c->border_inner->node, x0, y0);
+	wlr_scene_rect_set_corner_radii(c->border_inner, outer->corners);
+	wlr_scene_rect_set_clipped_region(c->border_inner, hole);
+
+	// with no gap the two antialiased edges meet and the background showed
+	// through them on the corner arcs (r+b 224-240 of 255), so the outer ring
+	// reaches 1px under the inner one, which draws over it
+	int32_t d = gap + iw - (gap == 0 ? 1 : 0);
+	outer->area.x -= d;
+	outer->area.y -= d;
+	outer->area.width += 2 * d;
+	outer->area.height += 2 * d;
+}
+
 void client_draw_border(Client *c, struct ivec2 offsets) {
 	if (!c || c->iskilling || !client_surface(c)->mapped)
 		return;
@@ -723,6 +814,8 @@ void client_draw_border(Client *c, struct ivec2 offsets) {
 			wlr_scene_node_set_enabled(&c->splitindicator[0]->node, false);
 			wlr_scene_node_set_enabled(&c->splitindicator[1]->node, false);
 			wlr_scene_node_set_enabled(&c->border->node, false);
+			if (c->border_inner)
+				wlr_scene_node_set_enabled(&c->border_inner->node, false);
 			wlr_scene_node_set_position(&c->scene_surface->node, 0, 0);
 		}
 		return;
@@ -767,6 +860,8 @@ void client_draw_border(Client *c, struct ivec2 offsets) {
 				 inner_surface_height},
 		.corners = current_corner_location,
 	};
+
+	client_draw_inner_border(c, cur, bw, offsets, &clipped_region);
 
 	wlr_scene_node_set_position(&c->scene_surface->node, c->bw, c->bw);
 	wlr_scene_rect_set_size(c->border, rect_width, rect_height);
@@ -1255,6 +1350,17 @@ void fadeout_client_animation_next_tick(Client *c) {
 	int32_t y = c->animation.initial.y +
 				(c->current.y - c->animation.initial.y) * factor;
 
+	// follow the camera
+	// snapshot is a fixed bitmap so zoom cant resize it but pan can be fixed
+	// move it by how far the camera went since capture
+	if (canvas_on_plane(c) && c->mon && canvas_active(c->mon)) {
+		double z = c->mon->zoom > 0.0 ? c->mon->zoom : 1.0;
+		double now_x = (double)c->mon->m.x + (c->canvas_geom.x - c->mon->cam_x) * z;
+		double now_y = (double)c->mon->m.y + (c->canvas_geom.y - c->mon->cam_y) * z;
+		x += (int32_t)lround(now_x - (double)c->geom.x);
+		y += (int32_t)lround(now_y - (double)c->geom.y);
+	}
+
 	wlr_scene_node_set_position(&c->scene->node, x, y);
 
 	c->animation.current = (struct wlr_box){
@@ -1368,6 +1474,13 @@ void init_fadeout_client(Client *c) {
 	Client *fadeout_client = ecalloc(1, sizeof(*fadeout_client));
 	fadeout_client->animation_type_open = ANIM_TYPE_UNSET;
 	fadeout_client->animation_type_close = ANIM_TYPE_UNSET;
+
+	// remember where the window was on the canvas before the overview card gets
+	// torn down fadeout ghost has screen coords baked in and canvas never sees
+	// it again no anchor means the ghost sticks to the screen while you pan
+	// overview card is already scaled so it gets no anchor
+	fadeout_client->canvas_geom = c->canvas_geom;
+	fadeout_client->canvas_placed = c->canvas_placed && !c->ov_card_tree;
 
 	c->snapshot_temp_visible = true;
 	client_update_visibility(c);
@@ -1572,6 +1685,14 @@ void client_set_pending_state(Client *c) {
 		c->animation.duration = 0;
 	}
 
+	// camera move shifts every window at once
+	// easing each one makes the windows slide around instead of the camera
+	// moving so layout is rigid and camera does its own smoothing
+	if (canvas_camera_is_rigid()) {
+		c->animation.should_animate = false;
+		c->animation.duration = 0;
+	}
+
 	client_commit(c);
 	c->dirty = true;
 }
@@ -1585,12 +1706,24 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 	c->need_output_flush = true;
 	c->dirty = true;
 
+	// scale border with zoom
+	// client size comes from geom minus 2 bw so unscaled border skews
+	// everything always assign for canvas clients, only doing it when zoomed
+	// left bw stuck after zooming back to 100% every other bw write goes
+	// through canvas_border_width too
+	if (canvas_active(c->mon) && !c->no_border && !c->iskilling &&
+		!c->isfullscreen && !c->ismaximizescreen)
+		c->bw = canvas_client_border_width(c);
+
 	struct wlr_box *bbox = (opts.interact || c->isfloating || c->isfullscreen)
 							   ? &server.scene_geometry
 							   : &c->mon->w;
 	struct wlr_box clip;
 
-	if (is_scroller_layout(c->mon) &&
+	// client_apply_bounds pulls windows back on screen
+	// scroller skips it and canvas is the same thing in 2d
+	// clamping here makes windows follow the camera so panning does nothing
+	if ((is_scroller_layout(c->mon) || canvas_active(c->mon)) &&
 		(!c->isfloating || c == server.grab_client)) {
 		c->geom = geo;
 		c->geom.width = MANGO_MAX(1 + 2 * (int32_t)c->bw, c->geom.width);
@@ -1647,7 +1780,7 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 	if (c->no_border || c->iskilling)
 		c->bw = 0;
 	else if (!c->isfullscreen)
-		c->bw = config.borderpx;
+		c->bw = canvas_client_border_width(c);
 
 	bool hit_no_border = check_hit_no_border(c);
 	if (hit_no_border) {
@@ -1657,10 +1790,28 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 		c->fake_no_border = false;
 	}
 
-	if (!c->mon->isoverview)
-		c->configure_serial =
-			client_set_size(c, c->geom.width - 2 * c->bw,
-							c->geom.height - 2 * c->bw, opts.force_configure);
+	// zoom must not resize the client
+	// a configure makes apps relayout at the zoomed size
+	// canvas_scale_buffer does the visual size with dest_size
+	if (!c->mon->isoverview) {
+		// fullscreen or maximized is sized by the monitor not canvas_geom
+		// using canvas_geom would configure the old pre fullscreen size
+		if (canvas_zoomed(c->mon) && !c->isfullscreen && !c->ismaximizescreen) {
+			// configure at canvas size not zoomed size so zoom never relayouts
+			// the app explicit resize still gets through skipping it when
+			// zoomed made edge drags do nothing because arrange overwrote geom
+			int32_t cw = (int32_t)lround(c->canvas_geom.width) -
+						 2 * (int32_t)config.borderpx;
+			int32_t ch = (int32_t)lround(c->canvas_geom.height) -
+						 2 * (int32_t)config.borderpx;
+			if (cw > 0 && ch > 0)
+				c->configure_serial = client_set_size(c, cw, ch,
+														 opts.force_configure);
+		} else {
+			c->configure_serial = client_set_size(c, c->geom.width - 2 * c->bw,
+								c->geom.height - 2 * c->bw, opts.force_configure);
+		}
+	}
 
 	if (c->configure_serial != 0)
 		c->mon->resizing_count_pending++;
@@ -1689,6 +1840,10 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 
 		if (client_is_x11(c))
 			client_update_xwayland_clip(c, &clip);
+		else if (canvas_zoomed(c->mon))
+			// scale not crop
+			// set_clip shrinks the visible rect instead of the content
+			canvas_apply_zoom_scale(c);
 		else
 			client_set_surface_clip(c, &clip);
 		return;
@@ -1746,12 +1901,18 @@ void client_start_focus_animation(Client *c, bool focused) {
 		focused ? c->focused_opacity : c->unfocused_opacity;
 	memcpy(c->opacity_animation.target_border_color, border_color,
 		   sizeof(c->opacity_animation.target_border_color));
+	memcpy(c->opacity_animation.target_inner_border_color,
+		   get_inner_border_color(c),
+		   sizeof(c->opacity_animation.target_inner_border_color));
 	memcpy(c->opacity_animation.target_dim_color, dim_color,
 		   sizeof(c->opacity_animation.target_dim_color));
 	c->opacity_animation.initial_opacity = c->opacity_animation.current_opacity;
 	memcpy(c->opacity_animation.initial_border_color,
 		   c->opacity_animation.current_border_color,
 		   sizeof(c->opacity_animation.initial_border_color));
+	memcpy(c->opacity_animation.initial_inner_border_color,
+		   c->opacity_animation.current_inner_border_color,
+		   sizeof(c->opacity_animation.initial_inner_border_color));
 	memcpy(c->opacity_animation.initial_dim_color,
 		   c->opacity_animation.current_dim_color,
 		   sizeof(c->opacity_animation.initial_dim_color));
@@ -1775,6 +1936,11 @@ static void client_interpolate_focus_animation(Client *c,
 			(c->opacity_animation.target_border_color[i] -
 			 c->opacity_animation.initial_border_color[i]) *
 				eased_progress;
+		c->opacity_animation.current_inner_border_color[i] =
+			c->opacity_animation.initial_inner_border_color[i] +
+			(c->opacity_animation.target_inner_border_color[i] -
+			 c->opacity_animation.initial_inner_border_color[i]) *
+				eased_progress;
 		c->opacity_animation.current_dim_color[i] =
 			c->opacity_animation.initial_dim_color[i] +
 			(c->opacity_animation.target_dim_color[i] -
@@ -1788,6 +1954,7 @@ bool client_step_focus_animation(Client *c, double linear_progress) {
 
 	client_set_opacity(c, c->opacity_animation.current_opacity);
 	client_set_state_colors(c, c->opacity_animation.current_border_color,
+							c->opacity_animation.current_inner_border_color,
 							c->opacity_animation.current_dim_color);
 
 	c->opacity_animation.running = linear_progress < 1.0;
@@ -1796,6 +1963,8 @@ bool client_step_focus_animation(Client *c, double linear_progress) {
 
 void client_set_unfocused_opacity_animation(Client *c) {
 	wlr_scene_node_raise_to_top(&c->border->node);
+	if (c->border_inner)
+		wlr_scene_node_place_above(&c->border_inner->node, &c->border->node);
 	if (!config.animations) {
 		client_update_border_color(c);
 		return;
@@ -1805,6 +1974,8 @@ void client_set_unfocused_opacity_animation(Client *c) {
 }
 void client_set_focused_opacity_animation(Client *c) {
 	wlr_scene_node_lower_to_bottom(&c->border->node);
+	if (c->border_inner)
+		wlr_scene_node_place_above(&c->border_inner->node, &c->border->node);
 
 	if (!config.animations) {
 		client_update_border_color(c);
@@ -1866,6 +2037,9 @@ bool client_set_focus_opacity(Client *c) {
 			memcpy(c->opacity_animation.current_border_color,
 				   c->opacity_animation.target_border_color,
 				   sizeof(c->opacity_animation.current_border_color));
+			memcpy(c->opacity_animation.current_inner_border_color,
+				   c->opacity_animation.target_inner_border_color,
+				   sizeof(c->opacity_animation.current_inner_border_color));
 			memcpy(c->opacity_animation.current_dim_color,
 				   c->opacity_animation.target_dim_color,
 				   sizeof(c->opacity_animation.current_dim_color));
@@ -1885,6 +2059,7 @@ bool client_set_focus_opacity(Client *c) {
 			wlr_scene_blur_set_alpha(c->blur, blur_val);
 		}
 		client_set_state_colors(c, c->opacity_animation.current_border_color,
+								c->opacity_animation.current_inner_border_color,
 								c->opacity_animation.current_dim_color);
 	} else if (config.animations && c->opacity_animation.running) {
 		struct timespec now;
@@ -1904,6 +2079,9 @@ bool client_set_focus_opacity(Client *c) {
 		c->opacity_animation.current_opacity = c->focused_opacity;
 		memcpy(c->opacity_animation.current_border_color, border_color,
 			   sizeof(c->opacity_animation.current_border_color));
+		memcpy(c->opacity_animation.current_inner_border_color,
+			   get_inner_border_color(c),
+			   sizeof(c->opacity_animation.current_inner_border_color));
 		memcpy(c->opacity_animation.current_dim_color, get_dim_color(c),
 			   sizeof(c->opacity_animation.current_dim_color));
 		client_set_opacity(c, c->focused_opacity);
@@ -1912,6 +2090,9 @@ bool client_set_focus_opacity(Client *c) {
 		c->opacity_animation.current_opacity = c->unfocused_opacity;
 		memcpy(c->opacity_animation.current_border_color, border_color,
 			   sizeof(c->opacity_animation.current_border_color));
+		memcpy(c->opacity_animation.current_inner_border_color,
+			   get_inner_border_color(c),
+			   sizeof(c->opacity_animation.current_inner_border_color));
 		memcpy(c->opacity_animation.current_dim_color, get_dim_color(c),
 			   sizeof(c->opacity_animation.current_dim_color));
 		client_set_opacity(c, c->unfocused_opacity);

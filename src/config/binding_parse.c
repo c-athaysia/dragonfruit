@@ -1,5 +1,6 @@
 #include "mango/config/internal.h"
 #include "mango/config/parse.h"
+#include "mango/layout/canvas.h"
 #include "mango/config/preset.h"
 
 #include <ctype.h>
@@ -806,6 +807,34 @@ FuncType parse_func_name(char *func_name, Arg *arg, char *arg_value,
 												 : atoi(arg_value + 1);
 		(*arg).i2 = (*arg).ui2 == NUM_TYPE_DEFAULT ? atoi(arg_value2)
 												   : atoi(arg_value2 + 1);
+	} else if (strcmp(func_name, "canvas_pan") == 0) {
+		func = canvas_pan_action;
+		(*arg).i = atoi(arg_value);
+		(*arg).i2 = atoi(arg_value2);
+	} else if (strcmp(func_name, "canvas_focus_dir") == 0) {
+		func = canvas_focus_dir;
+		(*arg).i = atoi(arg_value);
+		(*arg).i2 = atoi(arg_value2);
+	} else if (strcmp(func_name, "canvas_overview") == 0) {
+		func = canvas_overview;
+	} else if (strcmp(func_name, "canvas_jump") == 0) {
+		func = canvas_jump;
+	} else if (strcmp(func_name, "canvas_cascade") == 0) {
+		func = canvas_cascade;
+	} else if (strcmp(func_name, "canvas_zoom_in") == 0) {
+		func = canvas_zoom_in;
+	} else if (strcmp(func_name, "canvas_zoom_out") == 0) {
+		func = canvas_zoom_out;
+	} else if (strcmp(func_name, "canvas_zoom") == 0) {
+		func = canvas_zoom_action;
+		(*arg).i = atoi(arg_value);	  // 0 absolute 1 relative
+		(*arg).i2 = atoi(arg_value2); // percent
+	} else if (strcmp(func_name, "canvas_drag") == 0) {
+		func = canvas_drag;
+	} else if (strcmp(func_name, "canvas_center_window") == 0) {
+		func = canvas_center_window;
+	} else if (strcmp(func_name, "canvas_reset_camera") == 0) {
+		func = canvas_reset_camera;
 	} else if (strcmp(func_name, "movewin") == 0) {
 		func = move_window;
 		(*arg).ui = parse_num_type(arg_value);

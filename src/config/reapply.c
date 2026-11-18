@@ -1,5 +1,7 @@
 #include "mango/config/internal.h"
 #include "mango/config/parse.h"
+#include "mango/draw/shader_bg.h"
+#include "mango/layout/canvas.h"
 
 #include <ctype.h>
 #include <libgen.h>
@@ -109,6 +111,11 @@ void set_xcursor_env() {
 
 void reapply_rootbg(void) {
 	wlr_scene_rect_set_color(server.root_bg, config.rootcolor);
+
+	// recompiles the background shader - actual compile waits for next frame
+	// because thats when a gl context exists
+	shader_bg_load(config.canvas_shader);
+	shader_bg_mark_dirty();
 }
 
 void reapply_property(void) {
@@ -118,7 +125,7 @@ void reapply_property(void) {
 	wl_list_for_each(c, &server.clients, link) {
 		if (c && !c->iskilling) {
 			if (!c->no_border && !c->isfullscreen) {
-				c->bw = config.borderpx;
+				c->bw = canvas_client_border_width(c);
 			}
 			client_set_group_config(c);
 			client_set_tab_bar_config(c);
@@ -441,12 +448,10 @@ bool tag_rule_matches_monitor(const ConfigTagRule *tr, Monitor *m) {
 
 // Apply one tag rule to a slot (caller checks coverage).
 void tag_rule_apply_to_slot(Monitor *m, const ConfigTagRule *tr, uint32_t tag) {
-	int32_t jk;
-
-	for (jk = 0; jk < LENGTH(layouts); jk++) {
-		if (tr->layout_name && strcmp(layouts[jk].name, tr->layout_name) == 0)
-			m->pertag->config_ltidxs[tag] = &layouts[jk];
-	}
+	// layout_name still parses but does nothing - every tag stays on the canvas
+	// (layouts[0])
+	if (tr->layout_name && strcmp(tr->layout_name, "canvas") != 0)
+		layout_change_refused("tagrule layout_name");
 
 	if (tr->no_hide >= 0)
 		m->pertag->no_hide[tag] = tr->no_hide;

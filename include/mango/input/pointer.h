@@ -15,7 +15,14 @@ enum { TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT };
 enum { SWIPE_UP, SWIPE_DOWN, SWIPE_LEFT, SWIPE_RIGHT };
 
 /* Cursor states. */
-enum { CurNormal, CurPressed, CurMove, CurResize }; /* cursor */
+enum {
+	CurNormal,
+	CurPressed,
+	CurMove,
+	CurResize,
+	CurCanvasPan,	 /* dragging the canvas itself; no grab_client */
+	CurCanvasSelect, /* rubber-band multi-select; no grab_client */
+}; /* cursor */
 
 /* Scroll wheel direction. */
 enum { AxisUp, AxisDown, AxisLeft, AxisRight };

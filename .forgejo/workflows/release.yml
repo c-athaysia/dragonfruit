@@ -1,0 +1,65 @@
+# Push a tag like 0.2.0 and this makes the Codeberg release.
+#
+# Before tagging, in one commit:
+#   meson.build                    version : '0.2.0'
+#   packaging/arch/dragonfruit/PKGBUILD   pkgver=0.2.0, pkgrel=1
+#   packaging/gentoo/gui-wm/dragonfruit/dragonfruit-0.2.0.ebuild  (copy of 9999)
+# Nix and Guix need nothing: they build the tree they sit in, so the release
+# notes point them at the tag.
+#
+# Enable Actions in Settings > Units > Overview. If the release call returns
+# 403, add a repository secret RELEASE_TOKEN (access token, repository write).
+name: release
+
+on:
+  push:
+    tags: ['[0-9]*']
+
+jobs:
+  release:
+    runs-on: codeberg-tiny
+    steps:
+      - name: Check out the tag
+        run: |
+          git clone --depth 1 --branch "$GITHUB_REF_NAME" \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" src
+
+      - name: Check the recipes match the tag
+        working-directory: src
+        run: |
+          v="$GITHUB_REF_NAME"
+          fail() { echo "::error::$1"; exit 1; }
+          grep -q "^  version : '$v'," meson.build || fail "meson.build version is not $v"
+          grep -qx "pkgver=$v" packaging/arch/dragonfruit/PKGBUILD || fail "arch pkgver is not $v"
+          test -f "packaging/gentoo/gui-wm/dragonfruit/dragonfruit-$v.ebuild" || fail "no gentoo ebuild for $v"
+
+      - name: Collect the release files
+        working-directory: src
+        run: |
+          v="$GITHUB_REF_NAME"
+          mkdir ../out
+          git archive --prefix="dragonfruit-$v/" -o "../out/dragonfruit-$v.tar.gz" HEAD
+          cp packaging/arch/dragonfruit/PKGBUILD ../out/PKGBUILD
+          cp "packaging/gentoo/gui-wm/dragonfruit/dragonfruit-$v.ebuild" ../out/
+          cd ../out && sha256sum * > SHA256SUMS
+
+      - name: Make the release
+        env:
+          TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          v="$GITHUB_REF_NAME"
+          api="$GITHUB_SERVER_URL/api/v1/repos/$GITHUB_REPOSITORY"
+          body="Install from the packaging recipes for $v:
+
+          - Arch: download PKGBUILD, then makepkg -si
+          - Gentoo: emerge =gui-wm/dragonfruit-$v from the overlay in packaging/gentoo
+          - Nix: nix build git+$GITHUB_SERVER_URL/$GITHUB_REPOSITORY?ref=$v&dir=packaging/nix
+          - Guix: git checkout $v, then guix build -f packaging/guix/dragonfruit.scm"
+          id=$(jq -n --arg t "$v" --arg b "$body" '{tag_name:$t, name:$t, body:$b}' |
+            curl -sf -X POST -H "Authorization: token $TOKEN" \
+              -H 'Content-Type: application/json' -d @- "$api/releases" | jq -r .id)
+          test -n "$id" && test "$id" != null
+          for f in out/*; do
+            curl -sf -X POST -H "Authorization: token $TOKEN" \
+              -F "attachment=@$f" "$api/releases/$id/assets?name=$(basename "$f")" > /dev/null
+          done

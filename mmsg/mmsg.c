@@ -10,7 +10,7 @@
 #include "mango/common/log.h"
 
 static void usage(void) {
-	printf("Usage: mmsg <command> [args...]\n\n");
+	printf("Usage: dfmsg <command> [args...]\n\n");
 	printf("One-shot queries (get):\n");
 	printf(
 		"  get version                              Show compositor version\n");
@@ -28,6 +28,8 @@ static void usage(void) {
 		   "ID\n");
 	printf("  get tag <monitor> <index>                Show tag details "
 		   "(1‑based index)\n");
+	printf("  get canvas [monitor]                     Canvas camera, viewport,\n"
+		   "                                           content bounds and settings\n");
 	printf("  get all-clients                          List all clients\n");
 	printf("  get all-monitors                         List all monitors\n");
 	printf("  get all-devices                          List physical input "
@@ -73,9 +75,9 @@ static void usage(void) {
 	printf("  watch last_open_surface [monitor]        Stream last open "
 		   "surface changes\n\n");
 	printf("Environment:\n");
-	printf("  MANGO_INSTANCE_SIGNATURE  IPC socket path (set by the "
+	printf("  DRAGONFRUIT_INSTANCE_SIGNATURE  IPC socket path (set by the "
 		   "compositor)\n\n");
-	printf("Run 'mmsg --help', '-h' or 'help' to see this message.\n");
+	printf("Run 'dfmsg --help', '-h' or 'help' to see this message.\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -88,17 +90,17 @@ int main(int argc, char *argv[]) {
 
 	if (argc < 2) {
 		mango_error(false, WLR_INFO,
-					"Usage: mmsg <command> [args...]\n"
+					"Usage: dfmsg <command> [args...]\n"
 					"  get <type> ...      one-shot request\n"
 					"  watch <type> ...    persistent stream\n");
 		return EXIT_FAILURE;
 	}
 
-	const char *socket_path = getenv("MANGO_INSTANCE_SIGNATURE");
+	const char *socket_path = getenv("DRAGONFRUIT_INSTANCE_SIGNATURE");
 	if (!socket_path) {
 		mango_error(false, WLR_ERROR,
-					"MANGO_INSTANCE_SIGNATURE is not set. Did you run "
-					"'mmsg' in mango?\n");
+					"DRAGONFRUIT_INSTANCE_SIGNATURE is not set. Did you run "
+					"'dfmsg' inside dragonfruit?\n");
 		return EXIT_FAILURE;
 	}
 

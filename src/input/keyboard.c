@@ -2,6 +2,7 @@
 #include "ctype.h"
 #include "mango/common/log.h"
 #include "mango/common/server.h"
+#include "mango/layout/canvas.h"
 #include "mango/common/util.h"
 #include "mango/dispatch/bind.h"
 #include "mango/ext-protocol/text-input.h"
@@ -642,7 +643,11 @@ int32_t keyboard_check_keybinding(uint32_t state, bool is_locked, uint32_t mods,
 				handled = 0;
 			}
 
-			if (k->func(&k->arg))
+			server.binding_press_keycode =
+				state == WL_KEYBOARD_KEY_STATE_PRESSED ? keycode : 0;
+			int32_t stop = k->func(&k->arg);
+			server.binding_press_keycode = 0;
+			if (stop)
 				break;
 
 			// only match the first keybind
@@ -749,6 +754,9 @@ void handle_keyboard_key(struct wl_listener *listener, void *data) {
 	}
 
 	if (event->state == WL_KEYBOARD_KEY_STATE_RELEASED) {
+		// releasing a pan key has to clear it, held pan keys keep pushing
+		// runs every time, a keycode that isnt a pan key just matches nothing
+		canvas_pan_key_released(keycode);
 		server.tag_combo = false;
 	} else {
 		// Avoids normal bindings affecting a bare mode-key binding.
@@ -788,14 +796,20 @@ void handle_keyboard_key(struct wl_listener *listener, void *data) {
 
 		for (i = 0; i < nsyms; i++)
 			if (syms[i] == XKB_KEY_Escape) {
-				toggle_jump(&(Arg){0});
+				if (m->canvas_overview)
+					canvas_jump(&(Arg){0});
+				else
+					toggle_jump(&(Arg){0});
 				return;
 			}
 
 		Client *target = keyboard_find_jump_client(m, keycode);
 		if (target != NULL) {
 			client_focus(target, 1);
-			toggle_overview(&(Arg){.tc = target});
+			if (m->canvas_overview)
+				canvas_overview_pick(target);
+			else
+				toggle_overview(&(Arg){.tc = target});
 			return;
 		}
 	}

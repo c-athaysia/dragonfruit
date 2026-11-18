@@ -1,5 +1,5 @@
-project('mango', ['c'],
-  version : '0.18.5',
+project('dragonfruit', ['c'],
+  version : '0.1.0',
 )
 
 subdir('protocols')
@@ -40,6 +40,17 @@ libscenefx_dep = dependency('scenefx-0.5',version: '>=0.5.0')
 pixman_dep = dependency('pixman-1')
 cjson_dep = dependency('libcjson')
 pangocairo_dep = dependency('pangocairo')
+# needed directly - draw/shader_bg.c does raw gles2 calls into the fbo scenefx gives back
+gles2_dep = dependency('glesv2')
+
+# stock background shaders - installed so canvas_shader=dots works without a path
+# $DRAGONFRUIT_SHADER_DIR overrides for a build tree
+shader_dir = join_paths(get_option('prefix'), get_option('datadir'), 'dragonfruit', 'shaders')
+install_data(
+  ['assets/shaders/grain.glsl', 'assets/shaders/dots.glsl', 'assets/shaders/plus.glsl'],
+  install_dir : shader_dir,
+)
+add_project_arguments('-DSHADER_DIR="' + shader_dir + '"', language : 'c')
 
 # version info
 git = find_program('git', required : false)
@@ -98,19 +109,19 @@ if get_option('asan')
   link_args += '-fsanitize=address'
 endif
 
-# Auto-include every .c file under src/ (recursively) so new source files
-# are picked up at `meson setup` time without editing this file.
-# NOTE: mmsg/mmsg.c lives outside src/ on purpose (separate binary, own main()).
+# grabs every .c under src/ so new files just work at meson setup
+# mmsg/mmsg.c is outside src/ on purpose - its own binary with its own main
+# directory keeps the mango name and only the binary is dfmsg so rebases dont fight
 find = find_program('find')
-mango_sources = files(run_command(find, 'src', '-name', '*.c', check: true).stdout().split())
+dragonfruit_sources = files(run_command(find, 'src', '-name', '*.c', check: true).stdout().split())
 
-mango_inc = include_directories('.', 'include')
+dragonfruit_inc = include_directories('.', 'include')
 
-executable('mango',
-  mango_sources,
+executable('dragonfruit',
+  dragonfruit_sources,
 
   wayland_sources,
-  include_directories : mango_inc,
+  include_directories : dragonfruit_inc,
   dependencies : [
     libm,
     libdrm,
@@ -127,13 +138,15 @@ executable('mango',
     pixman_dep,
     cjson_dep,
     pangocairo_dep,
+    gles2_dep,
+    dependency('threads'),
   ],
   install : true,
   c_args : c_args,
   link_args : link_args,
 )
 
-# build mmsg
+# build dfmsg
 
 wayland_scanner_client_header = generator(
   wayland_scanner,
@@ -147,8 +160,8 @@ wayland_scanner_private_code = generator(
   arguments: ['private-code', '@INPUT@', '@OUTPUT@']
 )
 
-# use generator in mmsg target
-executable('mmsg',
+# generator for the dfmsg target
+executable('dfmsg',
   'mmsg/mmsg.c',
   'src/config/error_store.c',
   'src/common/log.c',
@@ -156,7 +169,7 @@ executable('mmsg',
 
   wayland_sources,
 
-  include_directories : mango_inc,
+  include_directories : dragonfruit_inc,
 
   dependencies: [
     libwayland_client_dep,
@@ -210,7 +223,7 @@ executable('mangonag',
   mangonag_xdg_proto_h,
   mangonag_xdg_proto_c,
 
-  include_directories : mango_inc,
+  include_directories : dragonfruit_inc,
 
   dependencies: [
     libwayland_client_dep,
@@ -233,27 +246,23 @@ executable('mangonag',
 mandir = get_option('mandir')
 desktop_install_dir = join_paths(prefix, 'share/wayland-sessions')
 portal_install_dir = join_paths(prefix, 'share/xdg-desktop-portal')
-install_data('assets/mango.desktop', install_dir : desktop_install_dir)
-install_data('assets/mango-portals.conf', install_dir : portal_install_dir)
-install_data('assets/config.conf', install_dir : join_paths(sysconfdir, 'mango'))
-install_data('assets/config.toml', install_dir : join_paths(sysconfdir, 'mango'))
+install_data('assets/dragonfruit.desktop', install_dir : desktop_install_dir)
+install_data('assets/dragonfruit-portals.conf', install_dir : portal_install_dir)
+install_data('assets/config.conf', install_dir : join_paths(sysconfdir, 'dragonfruit'))
 
-# Ship mango-session.target so that systemd user services declaring
-# WantedBy=graphical-session.target (portals, panels, ...) are started together
-# with the session. mango activates the target itself, see
-# set_activation_env() in src/main.c
-install_data('assets/mango-session.target',
+# ships dragonfruit-session.target so systemd user services wanting graphical-session.target start with the session
+# mango turns the target on itself - see set_activation_env in src/main.c
+install_data('assets/dragonfruit-session.target',
   install_dir : join_paths(prefix, 'lib/systemd/user'))
 
-# generate the mmsg man page at build time so the version always
-# matches the project version
-mmsg_man_conf = configuration_data()
-mmsg_man_conf.set('VERSION', meson.project_version())
+# man page generated at build time so the version matches
+dfmsg_man_conf = configuration_data()
+dfmsg_man_conf.set('VERSION', meson.project_version())
 install_data(
   configure_file(
-    input : 'mmsg/mmsg.1.in',
-    output : 'mmsg.1',
-    configuration : mmsg_man_conf,
+    input : 'mmsg/dfmsg.1.in',
+    output : 'dfmsg.1',
+    configuration : dfmsg_man_conf,
   ),
   install_dir : join_paths(mandir, 'man1'),
 )

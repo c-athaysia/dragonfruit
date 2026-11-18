@@ -1,85 +1,29 @@
 ---
 title: Status Bar
-description: Configure mangobar and Waybar for mangowm.
+description: Configure Waybar for Dragonfruit.
 ---
 
-## Recommended: mangobar
+## Waybar
 
-We recommend [mangobar](https://github.com/mangowm/mangobar), a dedicated status bar for mangowm built on `wlr-layer-shell`. It integrates directly with mangowm over IPC, so it stays in sync with your tags, layouts and windows. It ships with built-in modules for workspaces, layout, window title, keymode, keyboard layout, CPU/memory, brightness, volume, clock, network, battery, system tray, and user-defined `custom/<name>` modules.
-
-### Installation
-
-On Arch Linux, install the AUR package [`mangobar-git`](https://aur.archlinux.org/packages/mangobar-git):
-
-```sh
-yay -S mangobar-git
-```
-
-Or build from source:
-
-```sh
-git clone https://github.com/mangowm/mangobar.git
-cd mangobar
-meson setup build -Dprefix=/usr
-ninja -C build
-sudo ninja -C build install
-```
-
-### Usage
-
-Start `mangobar` in your mangowm configuration:
-
-```ini
-exec_once=mangobar
-```
-
-It reads its configuration from `$MANGOBAR_CONFIG` or `~/.config/mangobar/config.jsonc`, and its styling from `~/.config/mangobar/style.css`. See the [mangobar repository](https://github.com/mangowm/mangobar) for a complete reference and example configuration.
-
----
-
-## Waybar Module Configuration
+Dragonfruit implements the standard `ext-workspace` and `wlr-foreign-toplevel` protocols, so Waybar's generic modules work. Mango's own bar integrations (`mangobar` and Waybar's `mango/*` modules) talk to Mango's IPC socket, which Dragonfruit renames, so they do not work here.
 
 ### `config.jsonc`
 
-Add the following to your Waybar configuration:
-
 ```jsonc
 {
-  "modules-left": [
-    "mango/workspaces",
-    "mango/layout",
-    "mango/window"
-  ],
-  "modules-right": [
-    "mango/language",
-    "mango/keymode",
-  ],
-  "mango/workspaces": {
-      "format": "{icon}",
-      "hide-empty": true,
-      "on-click": "activate",
-      "on-click-right": "toggle",
-      "overview-label": "OVERVIEW",
+  "modules-left": ["ext/workspaces", "wlr/taskbar"],
+  "ext/workspaces": {
+    "format": "{icon}",
+    "on-click": "activate"
   },
-  "mango/keymode": {
-  	"format": "{}",
-  	// "format-default": " Default",
-    // "format-test": " Test",
-  },
-  "mango/window": {
-    "format": "{}",
-	  "icon-size": 20
-  },
-  "mango/layout": {
-      "format": "{}",
-      // "format-S": "Scroller",
-      // "format-T": "Tile",
-  },
-  "mango/language": {
-  "format": "{short}",
-  },
+  "wlr/taskbar": {
+    "format": "{icon}",
+    "on-click": "activate"
+  }
 }
 ```
+
+For anything else, poll `dfmsg` from a `custom` module, for example `dfmsg get canvas` for the camera and zoom. See [IPC](../ipc.md).
 
 ## Styling Example
 
@@ -137,23 +81,9 @@ window#waybar.empty #window {
     padding: 0px;
 }
 
-#layout {
-  background-color: #CA9297;
-  color: #282828;
-}
-
 #language {
   background-color: #CA9297;
   color: #282828;
 }
 
-#keymode {
-  background-color: #CA9297;
-  color: #282828;
-}
-
 ```
-
-## Complete Configuration Example
-
-> **Tip:** You can find a complete Waybar configuration for mangowm at [waybar-config](https://github.com/DreamMaoMao/waybar-config).

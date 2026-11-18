@@ -4,6 +4,7 @@
 #include "mango/common/log.h"
 #include "mango/common/scene_node.h"
 #include "mango/common/server.h"
+#include "mango/layout/canvas.h"
 #include "mango/common/util.h"
 #include "mango/dispatch/bind.h"
 #include "mango/draw/title-message-bar.h"
@@ -377,8 +378,11 @@ void client_set_border_color(Client *c, const float color[4]) {
 }
 
 void client_set_state_colors(Client *c, const float border_color[4],
+							 const float inner_color[4],
 							 const float dim_color[4]) {
 	client_set_border_color(c, border_color);
+	if (c->border_inner)
+		wlr_scene_rect_set_color(c->border_inner, inner_color);
 
 	if (c->dim_node) {
 		mango_dim_node_set_color(c->dim_node, dim_color);
@@ -475,6 +479,24 @@ void client_update_xwayland_clip(Client *c, struct wlr_box *clip) {
 	if (clip->width <= 0 || clip->height <= 0)
 		return;
 
+	// map the clip into buffer coords through zoom
+	// clip is screen pixels, at zoom z one screen pixel is 1/z buffer pixels
+	// skip the divide and you get the top left of the buffer cropped to the
+	// frame (xwayland clients at any zoom but 100%) z comes from the drawn
+	// frame not the camera so it works mid animation and with partly offscreen
+	// windows the old zoom_like branch stretched the whole buffer into whatever
+	// clip survived
+	double z = 1.0;
+	if (c->mon && canvas_active(c->mon)) {
+		struct wlr_box wingeo = {0};
+		client_get_geometry(c, &wingeo);
+		int32_t inner = c->animation.current.width - 2 * (int32_t)c->bw;
+		if (wingeo.width > 0 && inner > 0)
+			z = (double)inner / (double)wingeo.width;
+		if (z <= 0.0)
+			z = 1.0;
+	}
+
 	/* Buffer origin (client area) and its logical size. */
 	int32_t win_x = c->geom.x + (int32_t)c->bw;
 	int32_t win_y = c->geom.y + (int32_t)c->bw;
@@ -491,7 +513,9 @@ void client_update_xwayland_clip(Client *c, struct wlr_box *clip) {
 	 */
 	struct wlr_fbox src;
 	bool nearest = false;
-	bool device_aligned = clip->x == 0 && clip->y == 0 &&
+	// zoomed canvas goes through z below, the 1:1 device box would only sample
+	// the top left
+	bool device_aligned = z == 1.0 && clip->x == 0 && clip->y == 0 &&
 						  clip->width == inner_w && clip->height == inner_h;
 	if (device_aligned) {
 		struct wlr_fbox dev;
@@ -522,13 +546,22 @@ void client_update_xwayland_clip(Client *c, struct wlr_box *clip) {
 
 	if (!device_aligned) {
 		src = (struct wlr_fbox){
-			.x = (float)clip->x * scale,
-			.y = (float)clip->y * scale,
-			.width = (float)clip->width * scale,
-			.height = (float)clip->height * scale,
+			.x = (double)clip->x * scale / z,
+			.y = (double)clip->y * scale / z,
+			.width = (double)clip->width * scale / z,
+			.height = (double)clip->height * scale / z,
 		};
-		bool zoom_like = clip->x == 0 && clip->y == 0 &&
-						 clip->width < inner_w && clip->height < inner_h;
+		// mangos heuristic, for its own layouts only - their animations and
+		// overview draw the frame smaller than the window, so the whole buffer
+		// has to scale into it. on the canvas z already does that (it comes
+		// from the drawn frame), so z == 1 there means full size and a smaller
+		// clip means the window runs off the screen - that has to crop. the
+		// heuristic squashed a window that ran off the right and bottom edges
+		// at 100% (bar pitch 88 instead of 100)
+		bool zoom_like =
+			z == 1.0 && clip->x == 0 && clip->y == 0 && clip->width < inner_w &&
+			clip->height < inner_h &&
+			(!c->mon || !canvas_active(c->mon) || c->mon->isoverview);
 		if (zoom_like) {
 			src.x = 0;
 			src.y = 0;
@@ -620,6 +653,18 @@ uint32_t client_set_size(Client *c, uint32_t width, uint32_t height,
 		int32_t xh = xgeo.height;
 		int32_t xx = xgeo.x;
 		int32_t xy = xgeo.y;
+		if (c->mon && canvas_active(c->mon) && !c->isfullscreen) {
+			// on canvas use the size we were given not what
+			// client_get_x11_geometry makes from c->geom c->geom is the zoom
+			// scaled frame and resize_apply passes the canvas size so zoom
+			// never reconfigures the app doing it from c->geom gave x11 the
+			// zoomed size so it shrank again every frame (640x360 became 60x37
+			// after one zoom to 50%) position still comes from c->geom, only
+			// size doesnt
+			float xscale = c->xwayland_scale > 0.f ? c->xwayland_scale : 1.f;
+			xw = (int32_t)roundf((float)width * xscale);
+			xh = (int32_t)roundf((float)height * xscale);
+		}
 
 		xcb_size_hints_t *size_hints = surface->size_hints;
 		int32_t width = xw;
@@ -1297,6 +1342,14 @@ Client *get_next_stack_client(Client *c, bool reverse) {
 
 float *get_border_color(Client *c) {
 
+	// multi selected windows get their own color on any monitor
+	if (c->canvas_selected)
+		return config.canvas_select_window_color_set
+				   ? config.canvas_select_window_color
+			   : config.canvas_select.border_color_set
+				   ? config.canvas_select.border_color
+				   : config.urgentcolor;
+
 	if (c->mon != server.selected_monitor) {
 		return config.bordercolor;
 	} else if (c->isurgent) {
@@ -1318,6 +1371,20 @@ float *get_border_color(Client *c) {
 	} else {
 		return config.bordercolor;
 	}
+}
+
+// inner ring of a double border, its own focused and unfocused colors
+// each one unset follows the outer ring so urgent, selected and the rest
+// still show there
+float *get_inner_border_color(Client *c) {
+	bool focused = server.selected_monitor &&
+				   c->mon == server.selected_monitor &&
+				   c == server.selected_monitor->sel;
+	if (focused && config.inner_focuscolor_set)
+		return config.inner_focuscolor;
+	if (!focused && config.inner_bordercolor_set)
+		return config.inner_bordercolor;
+	return get_border_color(c);
 }
 
 float *get_dim_color(Client *c) {
@@ -2061,7 +2128,7 @@ void handle_new_xdg_toplevel(struct wl_listener *listener, void *data) {
 	c->animation_type_open = ANIM_TYPE_UNSET;
 	c->animation_type_close = ANIM_TYPE_UNSET;
 	c->surface.xdg = toplevel->base;
-	c->bw = config.borderpx;
+	c->bw = canvas_client_border_width(c);
 
 	LISTEN(&toplevel->base->surface->events.commit, &c->commit,
 		   handle_client_commit);
@@ -2197,6 +2264,12 @@ void init_client_properties(Client *c) {
 		   sizeof(c->opacity_animation.initial_border_color));
 	memcpy(c->opacity_animation.current_border_color, config.bordercolor,
 		   sizeof(c->opacity_animation.current_border_color));
+	float *inner = config.inner_bordercolor_set ? config.inner_bordercolor
+												: config.bordercolor;
+	memcpy(c->opacity_animation.initial_inner_border_color, inner,
+		   sizeof(c->opacity_animation.initial_inner_border_color));
+	memcpy(c->opacity_animation.current_inner_border_color, inner,
+		   sizeof(c->opacity_animation.current_inner_border_color));
 	memcpy(c->opacity_animation.initial_dim_color, config.dim_unfocused_color,
 		   sizeof(c->opacity_animation.initial_dim_color));
 	memcpy(c->opacity_animation.current_dim_color, config.dim_unfocused_color,
@@ -2279,7 +2352,7 @@ void handle_client_map(struct wl_listener *listener, void *data) {
 		c->bw = 0;
 		c->no_border = 1;
 	} else {
-		c->bw = config.borderpx;
+		c->bw = canvas_client_border_width(c);
 	}
 
 	if (client_should_global(c)) {
@@ -2342,6 +2415,13 @@ void handle_client_map(struct wl_listener *listener, void *data) {
 	wlr_scene_rect_set_corner_radii(c->border,
 									corner_radii_all(config.border_radius));
 	wlr_scene_node_set_enabled(&c->border->node, true);
+
+	// made always so a reload can turn the double border on, client_draw_border
+	// enables it
+	c->border_inner = wlr_scene_rect_create(
+		c->scene, 0, 0, c->opacity_animation.current_inner_border_color);
+	wlr_scene_node_place_above(&c->border_inner->node, &c->border->node);
+	wlr_scene_node_set_enabled(&c->border_inner->node, false);
 
 	c->shadow =
 		wlr_scene_shadow_create(c->scene, 0, 0, config.border_radius,
@@ -2513,7 +2593,11 @@ void handle_client_unmap(struct wl_listener *listener, void *data) {
 		dwindle_remove_client(c);
 	}
 
+	if (c->mon && c->mon->canvas_work_anchor == c)
+		c->mon->canvas_work_anchor = NULL;
+
 	if (c == server.grab_client) {
+		canvas_drop_preview_hide();
 		server.cursor_mode = CurNormal;
 		server.grab_client = NULL;
 		if (server.drop_client) {
@@ -3028,6 +3112,11 @@ void client_focus(Client *c, int32_t lift) {
 	client_ensure_constraint(c);
 
 	pointer_check_confine_client();
+	// move camera along when canvas_follow_focus is on
+	// hooked here so every focus change counts, pointer click or keyboard
+	// does nothing unless enabled
+	canvas_follow_focus(c);
+	canvas_note_focus(c);
 }
 
 void client_active(Client *c) {
@@ -3337,6 +3426,10 @@ void client_set_floating(Client *c, int32_t floating, bool want_animation) {
 
 	if (floating == 1 && c != server.grab_client) {
 
+		// off the plane so out of the selection
+		// it would keep the selected border but stop moving with the group
+		c->canvas_selected = false;
+
 		if (c->isfullscreen) {
 			client_pending_fullscreen_state(c, 0);
 			client_notify_fullscreen(c, 0);
@@ -3376,6 +3469,10 @@ void client_set_floating(Client *c, int32_t floating, bool want_animation) {
 	} else if (c->isfloating && c == server.grab_client) {
 		c->need_float_size_reduce = 0;
 	} else {
+		// back on the canvas where it is on screen now
+		// canvas_geom froze when it floated and the camera moved since
+		if (old_floating_state && canvas_active(c->mon))
+			canvas_commit_box(c, c->geom);
 		c->need_float_size_reduce = 1;
 		c->is_in_scratchpad = 0;
 		c->isnamedscratchpad = 0;
@@ -3420,6 +3517,7 @@ void client_set_fullscreen(
 	if (c->mon->isoverview)
 		return;
 
+	bool canvas_was_sized_by_screen = c->isfullscreen;
 	c->isfullscreen = fullscreen;
 
 	client_notify_fullscreen(c, fullscreen);
@@ -3441,9 +3539,16 @@ void client_set_fullscreen(
 			resize(c, c->mon->m, (ResizeOpts){.interact = 1});
 
 	} else {
-		c->bw = c->no_border ? 0 : config.borderpx;
+		c->bw = c->no_border ? 0 : canvas_client_border_width(c);
 		if (c->isfloating)
 			client_set_floating(c, 1, false);
+		// leaving fullscreen or maximize - client is still monitor sized so
+		// canvas has to put the old size back only on a real transition out,
+		// these branches also run during setup arming it there made the first
+		// layout trust a canvas_geom seeded from the monitor sized placeholder
+		// so every window mapped screen sized
+		if (canvas_was_sized_by_screen && canvas_active(c->mon))
+			c->canvas_resize_pending = true;
 	}
 
 	client_reparent_group(c);
@@ -3486,6 +3591,8 @@ void client_set_maximize_screen(Client *c, int32_t maximizescreen,
 	if (c->mon->isoverview)
 		return;
 
+	bool canvas_was_sized_by_screen = c->ismaximizescreen;
+
 	client_pending_maximized_state(c, maximizescreen);
 
 	if (maximizescreen) {
@@ -3512,9 +3619,16 @@ void client_set_maximize_screen(Client *c, int32_t maximizescreen,
 		if (!is_scroller_layout(c->mon) || c->isfloating)
 			resize(c, maximizescreen_box, (ResizeOpts){.interact = 0});
 	} else {
-		c->bw = c->no_border ? 0 : config.borderpx;
+		c->bw = c->no_border ? 0 : canvas_client_border_width(c);
 		if (c->isfloating)
 			client_set_floating(c, 1, false);
+		// leaving fullscreen or maximize - client is still monitor sized so
+		// canvas has to put the old size back only on a real transition out,
+		// these branches also run during setup arming it there made the first
+		// layout trust a canvas_geom seeded from the monitor sized placeholder
+		// so every window mapped screen sized
+		if (canvas_was_sized_by_screen && canvas_active(c->mon))
+			c->canvas_resize_pending = true;
 	}
 
 	client_reparent_group(c);
@@ -3676,7 +3790,7 @@ void show_scratchpad(Client *c) {
 	if (c->isfullscreen || c->ismaximizescreen) {
 		client_pending_fullscreen_state(c, 0);
 		client_pending_maximized_state(c, 0);
-		c->bw = c->no_border ? 0 : config.borderpx;
+		c->bw = c->no_border ? 0 : canvas_client_border_width(c);
 	}
 
 	if (!c->isfloating) {
@@ -3787,12 +3901,17 @@ void client_update_border_color(Client *c) {
 		return;
 
 	float *border_color = get_border_color(c);
+	float *inner_color = get_inner_border_color(c);
 	float *dim_color = get_dim_color(c);
 	memcpy(c->opacity_animation.target_border_color, border_color,
 		   sizeof(c->opacity_animation.target_border_color));
+	memcpy(c->opacity_animation.target_inner_border_color, inner_color,
+		   sizeof(c->opacity_animation.target_inner_border_color));
+	memcpy(c->opacity_animation.current_inner_border_color, inner_color,
+		   sizeof(c->opacity_animation.current_inner_border_color));
 	memcpy(c->opacity_animation.target_dim_color, dim_color,
 		   sizeof(c->opacity_animation.target_dim_color));
-	client_set_state_colors(c, border_color, dim_color);
+	client_set_state_colors(c, border_color, inner_color, dim_color);
 }
 
 void client_add_dim_node(Client *c) {
@@ -4330,12 +4449,11 @@ void client_sync_layer(Client *c) {
 	client_sync_blur_optimized(c);
 }
 
+// no groups in dragonfruit so no bar, always_show_group_bar and togglegroupbar
+// would otherwise reserve its height on every window
 bool client_wants_group_bar(Client *c) {
-	if (!c)
-		return false;
-	if (client_is_group_member(c))
-		return true;
-	return config.always_show_group_bar;
+	(void)c;
+	return false;
 }
 
 void client_add_group_bar(Client *c) {

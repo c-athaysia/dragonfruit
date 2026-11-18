@@ -1,0 +1,8 @@
+[Desktop Entry]
+Encoding=UTF-8
+Name=Dragonfruit
+DesktopNames=Dragonfruit;wlroots
+Comment=Dragonfruit — infinite-canvas compositor (Mango fork)
+Exec=dragonfruit
+Icon=dragonfruit
+Type=Application

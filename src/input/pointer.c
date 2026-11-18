@@ -4,6 +4,7 @@
 #include "mango/common/log.h"
 #include "mango/common/scene_node.h"
 #include "mango/common/server.h"
+#include "mango/layout/canvas.h"
 #include "mango/common/util.h"
 #include "mango/dispatch/bind.h"
 #include "mango/input/device.h"
@@ -1005,11 +1006,18 @@ bool pointer_begin_move_resize(Client *gc, uint32_t mode, double x, double y,
 	server.grab_client = gc;
 	server.grab_is_border_resize = edge != 0;
 
-	if (gc->isfloating == 0 && mode == CurMove)
+	// on canvas every window is already free so dont flip it to floating
+	// that sends it down another code path and out of the canvas layout
+	if (gc->isfloating == 0 && mode == CurMove && !canvas_active(gc->mon))
 		client_begin_drag_float(gc);
 
+	// release commits float_geom to canvas space and only motion refreshes it
+	// press and release with no motion would commit stale geom from an old drag
+	if (canvas_active(gc->mon) && !gc->isfloating)
+		gc->float_geom = gc->geom;
+
 	if (gc->drag_to_tile && config.drag_tile_to_tile &&
-		config.drag_tile_small) {
+		config.drag_tile_small && !canvas_active(gc->mon)) {
 		gc->geom.x = (int32_t)round(x) - 150;
 		gc->geom.y = (int32_t)round(y) - 150;
 		gc->geom.width = 300;
@@ -1024,7 +1032,10 @@ bool pointer_begin_move_resize(Client *gc, uint32_t mode, double x, double y,
 		wlr_cursor_set_xcursor(server.cursor, server.cursor_manager, "grab");
 		break;
 	case CurResize:
-		if (gc->isfloating) {
+		// canvas clients arent floating but resize like they are
+		// without this resize_edge and grab_offset never get set and drag
+		// does nothing
+		if (gc->isfloating || canvas_active(gc->mon)) {
 			uint32_t resize_edge = edge;
 			if (resize_edge == 0) {
 				int32_t corner = config.drag_corner;
@@ -1088,12 +1099,20 @@ void pointer_end_grab_client(bool follow_pointer) {
 		server.cursor_mode == CurPressed)
 		return;
 
+	canvas_drop_preview_hide();
+
+	bool resizing = server.cursor_mode == CurResize;
 	moved = server.cursor->x != server.grab_pointer_x ||
 			server.cursor->y != server.grab_pointer_y;
 	/* A plain click on a resize border must not snap the window; every other
 	 * grab keeps snapping as before, even when the pointer never moved. */
 	border_resize = server.grab_is_border_resize;
 	server.grab_is_border_resize = false;
+
+	/* motion resizes once per frame, so the last few events of a fast drag
+	 * can be skipped - apply the final pointer position before snapping */
+	if (resizing && moved && (gc->isfloating || canvas_active(gc->mon)))
+		pointer_resize_floating_window(gc, server.cursor->x, server.cursor->y);
 
 	server.cursor_mode = CurNormal;
 	/* Clear the pointer focus, this way if the cursor is over a surface
@@ -1128,6 +1147,28 @@ void pointer_end_grab_client(bool follow_pointer) {
 	if (gc->drag_to_tile && config.drag_tile_to_tile) {
 		pointer_place_drag_tile(gc);
 		gc->float_geom = gc->drag_tile_float_backup_geom;
+	} else if (gc->mon && canvas_active(gc->mon) && ISFAKETILED(gc) &&
+			   (!border_resize || moved)) {
+		// snap on release with the canvas rule, floating windows get mangos
+		// below apply_window_snap returns early for non floating and canvas
+		// clients are fake tiled so release did no snapping at all resize with
+		// grab_client already cleared is what makes it glide
+		double gx0 = gc->canvas_geom.x, gy0 = gc->canvas_geom.y;
+		canvas_commit_box(gc, gc->float_geom);
+		// resize snap per canvas_resize_snap
+		// move rests beside the neighbour, edge snaps only the dragged edges,
+		// off does nothing
+		int mode =
+			resizing ? config.canvas_resize_snap : CANVAS_RESIZE_SNAP_MOVE;
+		if (mode == CANVAS_RESIZE_SNAP_EDGE)
+			canvas_resize_snap_apply(gc);
+		else if (mode == CANVAS_RESIZE_SNAP_MOVE)
+			canvas_snap_layout(gc, &gc->float_geom);
+		resize(gc, gc->float_geom, (ResizeOpts){.interact = 0});
+		// selection follows the snap and glides too
+		if (mode == CANVAS_RESIZE_SNAP_MOVE)
+			canvas_group_follow(gc, gc->canvas_geom.x - gx0,
+								gc->canvas_geom.y - gy0, true);
 	} else if (!border_resize || moved) {
 		apply_window_snap(gc);
 	}
@@ -1301,6 +1342,17 @@ void pointer_process_motion(uint32_t time, struct wlr_input_device *device,
 								(int32_t)round(server.cursor->x),
 								(int32_t)round(server.cursor->y));
 
+	// canvas pan - cursor grabs the plane so camera moves opposite
+	// no grab_client here so release must bail before it touches one
+	if (server.cursor_mode == CurCanvasPan) {
+		canvas_pan_motion(server.cursor->x, server.cursor->y);
+		return;
+	}
+	if (server.cursor_mode == CurCanvasSelect) {
+		canvas_select_motion(server.cursor->x, server.cursor->y);
+		return;
+	}
+
 	if (server.group_bar_drag_pending) {
 		double ddx = server.cursor->x - server.group_bar_drag_x;
 		double ddy = server.cursor->y - server.group_bar_drag_y;
@@ -1356,17 +1408,36 @@ void pointer_process_motion(uint32_t time, struct wlr_input_device *device,
 			client_set_drop_area(server.drop_client);
 			server.drop_client = NULL;
 		}
+		// write the drag into canvas space so next arrange keeps the window
+		// where it was dropped no snapping here, it tracks the cursor and snaps
+		// once on release
+		double gx0 = server.grab_client->canvas_geom.x;
+		double gy0 = server.grab_client->canvas_geom.y;
+		canvas_commit_box(server.grab_client, server.grab_client->float_geom);
 		resize(server.grab_client, server.grab_client->float_geom,
 			   (ResizeOpts){.interact = 1});
+		// selected windows drag along
+		canvas_group_follow(server.grab_client,
+							server.grab_client->canvas_geom.x - gx0,
+							server.grab_client->canvas_geom.y - gy0, false);
+		canvas_drop_preview(server.grab_client);
 		return;
 	} else if (server.cursor_mode == CurResize) {
-		if (server.grab_client->isfloating) {
+		// canvas clients resize freely
+		// resize_tile_client tries to share space with tiled neighbours and
+		// that does nothing here
+		if (server.grab_client->isfloating ||
+			canvas_active(server.grab_client->mon)) {
 			server.grab_client->iscustomsize = 1;
 			Monitor *m = server.grab_client->mon;
 			if (m && m->last_resize_frame != m->frame_serial) {
 				m->last_resize_frame = m->frame_serial;
 				pointer_resize_floating_window(
 					server.grab_client, server.cursor->x, server.cursor->y);
+				canvas_commit_box(server.grab_client,
+								  server.grab_client->float_geom);
+				// snap highlight for what this resize will do on release
+				canvas_drop_preview(server.grab_client);
 			}
 			return;
 		} else {
@@ -1450,8 +1521,13 @@ void pointer_focus(Client *c, struct wlr_surface *surface, double sx, double sy,
 		(surface != server.seat->pointer_state.focused_surface ||
 		 (server.selected_monitor && server.selected_monitor->isoverview &&
 		  server.selected_monitor->sel != c)) &&
-		!client_is_unmanaged(c) && VISIBLEON(c, c->mon))
+		!client_is_unmanaged(c) && VISIBLEON(c, c->mon)) {
+		// no canvas_follow_focus here
+		// client_focus already calls it and returns early if already focused
+		// calling it again recentered the camera just for moving the pointer
+		// over the focused window
 		client_focus(c, 0);
+	}
 
 	/* Pointer-driven layer constraints: deactivate as soon as the pointer
 	 * leaves their surface. Toplevel constraints are managed by focusclient
@@ -1483,6 +1559,14 @@ void pointer_focus(Client *c, struct wlr_surface *surface, double sx, double sy,
 	double scale = pointer_surface_scale(c);
 	sx *= scale;
 	sy *= scale;
+
+	// zoom scales pixels with dest_size but the surface still thinks its
+	// unscaled divide surface local coords by zoom or clicks land in the wrong
+	// spot same as xwayland_scale above but the other way
+	if (c && c->mon && canvas_zoomed(c->mon) && c->mon->zoom > 0.0) {
+		sx /= c->mon->zoom;
+		sy /= c->mon->zoom;
+	}
 
 	if (!c || !c->mon || !c->mon->isoverview) {
 		// don't let window get pointer focus,
@@ -1755,8 +1839,37 @@ bool pointer_process_button_press(struct wlr_pointer_button_event *event) {
 			return true;
 		}
 
+		// overview click is navigation - pick the window, leave overview, fly
+		// to it done before normal focus so the click doesnt also hit the
+		// client
+		if (server.selected_monitor &&
+			server.selected_monitor->canvas_overview &&
+			event->button == BTN_LEFT) {
+			struct wlr_surface *ov_surface = NULL;
+			Client *ov_c = NULL;
+			node_at_point(server.cursor->x, server.cursor->y, &ov_surface, &ov_c,
+						  NULL, NULL, NULL, NULL);
+			if (ov_c) {
+				client_focus(ov_c, 1);
+				canvas_overview_pick(ov_c);
+				wlr_seat_pointer_notify_clear_focus(server.seat);
+				return true;
+			}
+		}
+
 		node_at_point(server.cursor->x, server.cursor->y, &surface, NULL, NULL,
 					  &bar, NULL, NULL);
+		{
+			// empty canvas, only the wallpaper layer surface under the pointer
+			Client *hc = NULL;
+			LayerSurface *hl = NULL;
+			toplevel_from_wlr_surface(surface, &hc, &hl);
+			canvas_select_press(
+				!hc && !bar &&
+					(!hl || hl->layer_surface->current.layer ==
+								ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND),
+				server.cursor->x, server.cursor->y);
+		}
 		if (toplevel_from_wlr_surface(surface, &c, &l) >= 0) {
 			if (c && c->scene && c->scene->node.enabled &&
 				VISIBLEON(c, c->mon) &&
@@ -1865,6 +1978,21 @@ bool pointer_process_button_press(struct wlr_pointer_button_event *event) {
 		server.group_bar_drag_pending = false;
 		server.drop_to_group = false;
 		server.group_bar_drag_client = NULL;
+		canvas_select_release(server.cursor->x, server.cursor->y);
+		if (server.cursor_mode == CurCanvasSelect) {
+			canvas_select_end();
+			return true;
+		}
+		// canvas pan has no grab client so end it before the move resize
+		// teardown that part dereferences server.grab_client
+		if (server.cursor_mode == CurCanvasPan) {
+			canvas_pan_end();
+			server.cursor_mode = CurNormal;
+			wlr_cursor_set_xcursor(server.cursor, server.cursor_manager,
+								   "default");
+			pointer_process_motion(0, NULL, 0, 0, 0, 0);
+			return true;
+		}
 		if (server.cursor_mode == CurMove && server.grab_client &&
 			server.grab_client->drag_to_tile) {
 			Client *jc = server.grab_client;

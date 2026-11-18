@@ -4,6 +4,8 @@
 #include "mango/animation/layer.h"
 #include "mango/common/log.h"
 #include "mango/common/server.h"
+#include "mango/draw/shader_bg.h"
+#include "mango/layout/canvas.h"
 #include "mango/common/util.h"
 #include "mango/dispatch/bind.h"
 #include "mango/draw/title-message-bar.h"
@@ -697,6 +699,13 @@ void handle_new_output(struct wl_listener *listener, void *data) {
 
 	m->gappih = config.gappih;
 	m->gappiv = config.gappiv;
+	// camera starts at the origin, zoom 1.0
+	m->cam_x = 0.0;
+	m->cam_y = 0.0;
+	m->zoom = 1.0;
+	m->zoom_target = 1.0;
+	m->zoom_animating = false;
+
 	m->gappoh = config.gappoh;
 	m->gappov = config.gappov;
 	m->special_gappih = config.special_gappih;
@@ -898,6 +907,7 @@ void handle_new_output(struct wl_listener *listener, void *data) {
 
 void handle_output_destroy(struct wl_listener *listener, void *data) {
 	Monitor *m = wl_container_of(listener, m, destroy);
+	shader_bg_finish_monitor(m);
 	LayerSurface *l = NULL, *tmp = NULL;
 	uint32_t i;
 
@@ -1396,6 +1406,15 @@ void handle_output_frame(struct wl_listener *listener, void *data) {
 	if (!m->wlr_output->enabled || !server.allow_frame_scheduling)
 		return;
 
+	// step the camera
+	// returns false once it settles, thats what keeps an idle canvas at zero
+	// frames
+	need_more_frames = canvas_camera_tick(m) || need_more_frames;
+
+	// redraw the background if camera or output changed
+	// does not set need_more_frames on purpose, it must not keep the compositor
+	// awake
+	shader_bg_update(m);
 	m->frame_serial++;
 
 	// Draws layers and fade-out effects.
@@ -1416,6 +1435,10 @@ void handle_output_frame(struct wl_listener *listener, void *data) {
 
 	wl_list_for_each(c, &server.clients, link) {
 		need_more_frames = client_draw_frame(c) || need_more_frames;
+
+		// a surface commit resets dest_size so put the zoom scale back
+		// rides an existing frame, never asks for one
+		canvas_apply_zoom_scale(c);
 
 		if (!c->force_render && c->configure_serial &&
 			client_is_rendered_on_mon(c, m))

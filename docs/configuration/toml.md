@@ -3,7 +3,7 @@ title: TOML Conversion
 description: How each conf construct is written in TOML.
 ---
 
-mangowm reads `.conf` and `.toml` with the same option names and values; only
+Dragonfruit reads `.conf` and `.toml` with the same option names and values; only
 the syntax differs. This page only explains how to move a conf file to TOML, not
 what each option does — see the other configuration pages for that.
 
@@ -167,7 +167,7 @@ become `k = v`.
 
 ```ini
 window_rule=is_floating:1,width:800,height:900,app_id:mpv
-tag_rule=id:1,layout_name:tile
+tag_rule=id:1,no_hide:1
 layer_rule=animation_type_open:zoom,layer_name:rofi
 monitor_rule=name:eDP-1,width:1920,height:1080,refresh:60,x:0,y:0,scale:1
 device_rule=type:trackpad,tap_to_click:1,natural_scrolling:0
@@ -182,7 +182,7 @@ app_id = "mpv"
 
 [[rule.tag_rule]]
 id = 1
-layout_name = "tile"
+no_hide = 1
 
 [[rule.layer_rule]]
 animation_type_open = "zoom"
@@ -231,8 +231,7 @@ bind table is the one remaining case: put the actions in an array.
 - Strings are quoted (`"foot"`, `'foot'`); numbers and booleans stay bare
   (`8`, `0.9`, `true`, `false`).
 - Colors stay `0xRRGGBBAA` (`0x201b14ff`).
-- Comma lists (`animation_curve_*`, `scroller_proportion_preset`,
-  `circle_layout`) become arrays: `0.5,0.8,1.0` → `[0.5, 0.8, 1.0]`.
+- Comma lists (`animation_curve_*`, `circle_layout`) become arrays: `0.5,0.8,1.0` → `[0.5, 0.8, 1.0]`.
 - A value that is itself a string (`"us,ru"`, a command line) is quoted, so it
   may contain commas.
 

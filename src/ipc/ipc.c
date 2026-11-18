@@ -539,7 +539,7 @@ void ipc_cleanup(void) {
 	if (ipc_socket_fd >= 0)
 		close(ipc_socket_fd);
 	unlink(ipc_socket_path);
-	unsetenv("MANGO_INSTANCE_SIGNATURE");
+	unsetenv("DRAGONFRUIT_INSTANCE_SIGNATURE");
 
 	struct ipc_watch_client *wc, *tmp;
 	wl_list_for_each_safe(wc, tmp, &ipc_watch_clients, link)
@@ -566,6 +566,83 @@ cJSON *monitor_active_tags(Monitor *m) {
 		if (tagset & (1 << i))
 			cJSON_AddItemToArray(arr, cJSON_CreateNumber(i + 1));
 	return arr;
+}
+// camera state and what its looking at
+// viewport and content are in canvas units because thats what outside tools
+// need content is the bounding box of every placed window on this monitor
+// enough for a minimap or finding free space or how far off screen a window is
+cJSON *build_canvas_json(Monitor *m) {
+	cJSON *obj = cJSON_CreateObject();
+	double z = m->zoom > 0.0 ? m->zoom : 1.0;
+
+	cJSON_AddStringToObject(obj, "monitor", m->wlr_output->name);
+	cJSON_AddBoolToObject(obj, "active", canvas_active(m));
+
+	cJSON *cam = cJSON_CreateObject();
+	cJSON_AddNumberToObject(cam, "x", m->cam_x);
+	cJSON_AddNumberToObject(cam, "y", m->cam_y);
+	cJSON_AddNumberToObject(cam, "zoom", z);
+	cJSON_AddNumberToObject(cam, "zoom_percent", z * 100.0);
+	cJSON_AddBoolToObject(cam, "animating", m->zoom_animating);
+	cJSON_AddItemToObject(obj, "camera", cam);
+
+	// what the screen shows in canvas units
+	cJSON *vp = cJSON_CreateObject();
+	double vx, vy, vw, vh;
+	canvas_viewport(m, &vx, &vy, &vw, &vh);
+	cJSON_AddNumberToObject(vp, "x", vx);
+	cJSON_AddNumberToObject(vp, "y", vy);
+	cJSON_AddNumberToObject(vp, "width", vw);
+	cJSON_AddNumberToObject(vp, "height", vh);
+	cJSON_AddItemToObject(obj, "viewport", vp);
+
+	cJSON *ov = cJSON_CreateObject();
+	cJSON_AddBoolToObject(ov, "active", m->canvas_overview);
+	cJSON_AddNumberToObject(ov, "blend", m->ov_blend);
+	cJSON_AddItemToObject(obj, "overview", ov);
+
+	// bounding box of everything placed here and the count
+	int n = 0;
+	double minx = 0, miny = 0, maxx = 0, maxy = 0;
+	Client *c = NULL;
+	wl_list_for_each(c, &server.clients, link) {
+		if (!VISIBLEON(c, m) || !ISFAKETILED(c) || !c->canvas_placed)
+			continue;
+		double x0 = c->canvas_geom.x, y0 = c->canvas_geom.y;
+		double x1 = x0 + c->canvas_geom.width, y1 = y0 + c->canvas_geom.height;
+		if (!n || x0 < minx)
+			minx = x0;
+		if (!n || y0 < miny)
+			miny = y0;
+		if (!n || x1 > maxx)
+			maxx = x1;
+		if (!n || y1 > maxy)
+			maxy = y1;
+		n++;
+	}
+	cJSON_AddNumberToObject(obj, "placed_clients", n);
+	cJSON *content = cJSON_CreateObject();
+	cJSON_AddNumberToObject(content, "x", minx);
+	cJSON_AddNumberToObject(content, "y", miny);
+	cJSON_AddNumberToObject(content, "width", maxx - minx);
+	cJSON_AddNumberToObject(content, "height", maxy - miny);
+	cJSON_AddItemToObject(obj, "content", content);
+
+	// settings that change canvas behaviour so tools dont parse the config
+	cJSON *cfg = cJSON_CreateObject();
+	static const char *placement[] = {"center", "auto-focused", "auto-recent",
+									  "auto-compact"};
+	cJSON_AddStringToObject(cfg, "placement",
+							placement[config.canvas_placement & 3]);
+	cJSON_AddBoolToObject(cfg, "follow_focus", config.canvas_follow_focus != 0);
+	cJSON_AddNumberToObject(cfg, "follow_focus_delay",
+							config.canvas_follow_focus_delay);
+	cJSON_AddNumberToObject(cfg, "zoom_step", config.canvas_zoom_step);
+	cJSON_AddBoolToObject(cfg, "snap", config.enable_floating_snap != 0);
+	cJSON_AddNumberToObject(cfg, "snap_distance", config.snap_distance);
+	cJSON_AddItemToObject(obj, "config", cfg);
+
+	return obj;
 }
 
 static const char *client_output_name(Client *c) {
@@ -605,6 +682,15 @@ cJSON *build_client_json(Client *c) {
 	cJSON_AddBoolToObject(obj, "is_urgent", c->isurgent);
 	cJSON_AddBoolToObject(obj, "is_scratchpad", c->is_in_scratchpad);
 	cJSON_AddBoolToObject(obj, "is_namedscratchpad", c->isnamedscratchpad);
+	// canvas coords next to the layout ones
+	// x y width height are on screen and move with the camera
+	// canvas_* is where it sits on the plane and doesnt
+	// session restore or minimap or switcher needs the second one
+	cJSON_AddBoolToObject(obj, "canvas_placed", c->canvas_placed);
+	cJSON_AddNumberToObject(obj, "canvas_x", c->canvas_geom.x);
+	cJSON_AddNumberToObject(obj, "canvas_y", c->canvas_geom.y);
+	cJSON_AddNumberToObject(obj, "canvas_width", c->canvas_geom.width);
+	cJSON_AddNumberToObject(obj, "canvas_height", c->canvas_geom.height);
 	cJSON_AddNumberToObject(obj, "x", c->geom.x);
 	cJSON_AddNumberToObject(obj, "y", c->geom.y);
 	cJSON_AddNumberToObject(obj, "width", c->geom.width);
@@ -704,6 +790,15 @@ void handle_command(int client_fd, const char *cmd_raw) {
 			cJSON_AddStringToObject(resp, "monitor", m->wlr_output->name);
 		else
 			cJSON_AddNullToObject(resp, "monitor");
+	} else if (strcmp(cmd, "get canvas") == 0 ||
+			   strncmp(cmd, "get canvas ", 11) == 0) {
+		Monitor *m = cmd[10] == '\0' ? server.selected_monitor
+									 : monitor_by_name(cmd + 11);
+		if (!m) {
+			send_static_json(client_fd, "{\"error\":\"monitor not found\"}\n");
+			return;
+		}
+		resp = build_canvas_json(m);
 	} else if (strcmp(cmd, "get keymode") == 0) {
 		resp = cJSON_CreateObject();
 		cJSON_AddStringToObject(resp, "keymode", server.key_mode.mode);
@@ -1379,7 +1474,7 @@ void ipc_init(struct wl_event_loop *loop) {
 	if (!xdg_runtime)
 		return;
 
-	snprintf(ipc_socket_path, sizeof(ipc_socket_path), "%s/mango-%d.sock",
+	snprintf(ipc_socket_path, sizeof(ipc_socket_path), "%s/dragonfruit-%d.sock",
 			 xdg_runtime, getpid());
 
 	ipc_socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -1418,7 +1513,7 @@ void ipc_init(struct wl_event_loop *loop) {
 	}
 	listen(ipc_socket_fd, 16);
 
-	setenv("MANGO_INSTANCE_SIGNATURE", ipc_socket_path, 1);
+	setenv("DRAGONFRUIT_INSTANCE_SIGNATURE", ipc_socket_path, 1);
 
 	ipc_event_source = wl_event_loop_add_fd(
 		loop, ipc_socket_fd, WL_EVENT_READABLE, ipc_handle_connection, loop);

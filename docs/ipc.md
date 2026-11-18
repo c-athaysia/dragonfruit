@@ -1,22 +1,22 @@
 ---
 title: IPC
-description: Control mangowm programmatically using mmsg.
+description: Talk to Dragonfruit from scripts with dfmsg.
 ---
 
-# mmsg(1) - User Manual
+# dfmsg(1) - User Manual
 
-`mmsg` is the command-line interface for the Mango compositor's Inter-Process Communication (IPC) system. It allows users and scripts to query the state of the compositor or subscribe to real-time events.
+`dfmsg` is the command line client for Dragonfruit's IPC. Use it to ask the compositor about its state, or to subscribe to live events.
 
 ## SYNOPSIS
-`mmsg <command> [arguments...]`
+`dfmsg <command> [arguments...]`
 
 ## DESCRIPTION
-`mmsg` acts as a client that connects to the Mango compositor via a Unix domain socket defined by the `MANGO_INSTANCE_SIGNATURE` environment variable. It supports two primary modes of operation:
-1. **One-shot Request (`get`)**: Sends a query to the compositor, receives a single JSON response, and terminates.
-2. **Persistent Stream (`watch`)**: Subscribes to a specific state, receiving continuous JSON updates whenever that state changes.
+`dfmsg` connects to the compositor over a Unix socket, set by the `DRAGONFRUIT_INSTANCE_SIGNATURE` environment variable. It has two modes:
+1. **One-shot (`get`)**: Sends a query, gets one JSON reply, and exits.
+2. **Stream (`watch`)**: Subscribes to some state and keeps printing JSON whenever it changes.
 
 ## ENVIRONMENT VARIABLES
-* **`MANGO_INSTANCE_SIGNATURE`**: Must be set to the path of the Unix socket created by the running Mango instance. This is typically handled automatically when running `mmsg` from within a terminal spawned by the compositor.
+* **`DRAGONFRUIT_INSTANCE_SIGNATURE`**: Path to the socket the running Dragonfruit created. It's already set if you run `dfmsg` from a terminal the compositor started.
 
 ## COMMANDS
 
@@ -37,16 +37,18 @@ description: Control mangowm programmatically using mmsg.
 | `get all-devices` | Returns a JSON array of all physical input devices, grouped by libinput device group (`name`, `types`, `identifier`, `vendor`, `product`, `interfaces`, `matched`). |
 | `get all-layers` | Returns a JSON array of all open layer surfaces (`monitor`, `layer`, `name`). |
 | `get all-tags` | Returns a JSON object containing the status of all tags. |
+| `get canvas [<mon>]` | Returns the camera (position and zoom), the visible viewport, the box around every placed window (in canvas units) and the canvas settings. Clients also report `canvas_x`, `canvas_y`, `canvas_width` and `canvas_height`. |
 | `get last_open_surface [<mon>]` | Returns the last focused surface name for a monitor,if the mon not set, it will get current monitor. |
 
 *Example:*
 ```bash
-mmsg get monitor eDP-1
-mmsg get all-clients
-mmsg get all-monitors
-mmsg get all-devices
-mmsg get all-layers
-mmsg get cursorpos
+dfmsg get monitor eDP-1
+dfmsg get all-clients
+dfmsg get all-monitors
+dfmsg get all-devices
+dfmsg get all-layers
+dfmsg get cursorpos
+dfmsg get canvas
 ```
 
 ### WATCH (Event Subscription)
@@ -67,9 +69,9 @@ Subscribes the client to real-time updates. When the state changes, the server p
 *Example:*
 ```bash
 # watch all monitors
-mmsg watch all-monitors
+dfmsg watch all-monitors
 # watch all tags
-mmsg watch all-tags
+dfmsg watch all-tags
 ```
 
 ### DISPATCH
@@ -79,7 +81,33 @@ Allows sending commands to the compositor to alter its state.
 *Example:* 
 ```bash   
 # operate specific client by id
-mmsg dispatch exchange_client,left client,375
+dfmsg dispatch exchange_client,left client,375
 # operate current client
-mmsg dispatch exchange_client,left
-````
+dfmsg dispatch exchange_client,left
+```
+
+## The canvas
+
+```console
+$ dfmsg get canvas
+{
+  "monitor": "DP-1", "active": true,
+  "camera":   { "x": -640, "y": -360, "zoom": 0.5, "zoom_percent": 50, "animating": false },
+  "viewport": { "x": -640, "y": -360, "width": 2560, "height": 1440 },
+  "overview": { "active": false, "blend": 0 },
+  "placed_clients": 3,
+  "content":  { "x": 320, "y": 180, "width": 1952, "height": 360 },
+  "config":   { "placement": "auto", "follow_focus": true, ... }
+}
+```
+
+The viewport is the rectangle of the plane you can currently see, and `content`
+is the bounding box of every window placed on it. Between the two you've got
+enough to draw a minimap, find free space, or work out how far off-screen
+something is.
+
+Every client also reports `canvas_x`, `canvas_y`, `canvas_width` and
+`canvas_height` next to the usual `x`/`y`/`width`/`height`. The usual ones are
+where a window sits **on screen**, which depends on where the camera happens to
+be. The `canvas_` ones are where it lives **on the plane**, which doesn't. Session
+restore, or anything else that wants to remember a position, needs the second.

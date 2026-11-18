@@ -1,0 +1,57 @@
+# Maintainer: Lucien <lucien09@proton.me>
+#
+# Builds Dragonfruit from the tip of the `dragonfruit` branch.
+# Works unchanged on Arch and on Artix.
+
+pkgname=dragonfruit
+_pkgname=dragonfruit
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="An infinite-canvas Wayland compositor forked from Mango"
+arch=('x86_64' 'aarch64')
+url="https://codeberg.org/central-lambda-group/dragonfruit"
+license=('GPL-3.0-or-later')
+
+depends=(
+  'glibc'
+  'wayland'              # wayland-server, wayland-client
+  'libinput'             # >= 1.27.1
+  'libdrm'
+  'pixman'
+  'libxkbcommon'
+  'pcre2'
+  'pango' 'cairo' 'glib2'
+  'cjson'
+  'libglvnd'             # glesv2, used directly by the canvas background shader
+  'libwlroots-0.20.so'   # extra/wlroots0.20
+  'scenefx0.5'           # AUR
+  # XWayland
+  'xorg-xwayland'
+  'libxcb'
+  'xcb-util-wm'
+)
+
+makedepends=('git' 'meson' 'ninja' 'wayland-protocols' 'pkgconf')
+
+provides=('dfmsg' 'wayland-compositor')
+conflicts=('dragonfruit-git')
+
+source=("$_pkgname::git+https://codeberg.org/central-lambda-group/dragonfruit.git#tag=$pkgver")
+sha256sums=('SKIP')
+
+
+build() {
+  arch-meson "$_pkgname" build \
+    -D xwayland=enabled \
+    -D asan=false
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+
+  install -Dm644 "$_pkgname/LICENSE" \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$_pkgname/README.md" \
+    "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

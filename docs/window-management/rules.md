@@ -53,7 +53,7 @@ window_rule_once=Parameter:Values,Parameter:Values,app_id:Values,title:Values
 | `height` | float | 0-9999 | Window height when it becomes a floating window,if the value below 1, it will be the percentage of the screen height,otherwise it will be the pixel value |
 | `offset_x` | integer | -999-999 | X offset from center (%), 100 is the edge of screen with outer gap |
 | `offset_y` | integer | -999-999 | Y offset from center (%), 100 is the edge of screen with outer gap |
-| `monitor` | string | Any | Assign to monitor by [monitor spec](/docs/configuration/monitors#monitor-spec-format) (name, make, model, or serial) |
+| `monitor` | string | Any | Assign to monitor by [monitor spec](../configuration/monitors.md#monitor-spec-format) (name, make, model, or serial) |
 | `tags` | mask | `0-9` / `1\|3\|5` | Assign to specific one tag (use `0` for special workspace overlay) or multiple tags (use `\|` to split multiple tags) |
 | `no_force_center` | integer | `0` / `1` | Window does not force center |
 | `no_size_hint` | integer | `0` / `1` | Don't use min size and max size for size hints |
@@ -72,16 +72,7 @@ window_rule_once=Parameter:Values,Parameter:Values,app_id:Values,title:Values
 | `allow_csd` | integer | `0` / `1` | Allow client side decoration |
 | `confine_pointer` | integer | `0` / `1` | While this window is focused and visible, force the cursor to stay inside it (does not require the client to use the pointer constraints protocol) |
 
-> **Tip:** For detailed visual effects configuration, see the [Window Effects](/docs/visuals/effects) page for blur, shadows, and opacity settings.
-
-### Layout & Scroller
-
-| Parameter | Type | Values | Description |
-| :--- | :--- | :--- | :--- |
-| `scroller_proportion` | float | 0.1-1.0 | Set scroller proportion |
-| `scroller_proportion_single` | float | 0.1-1.0 | Set scroller auto adjust proportion when it is single window |
-
-> **Tip:** For comprehensive layout configuration, see the [Layouts](/docs/window-management/layouts) page for all layout options and detailed settings.
+> **Tip:** For detailed visual effects configuration, see the [Window Effects](../visuals/effects.md) page for blur, shadows, and opacity settings.
 
 ### Animation
 
@@ -92,7 +83,7 @@ window_rule_once=Parameter:Values,Parameter:Values,app_id:Values,title:Values
 | `no_fade_in` | integer | `0` / `1` | Window ignores fade-in animation |
 | `no_fade_out` | integer | `0` / `1` | Window ignores fade-out animation |
 
-> **Tip:** For detailed animation configuration, see the [Animations](/docs/visuals/animations) page for available types and settings.
+> **Tip:** For detailed animation configuration, see the [Animations](../visuals/animations.md) page for available types and settings.
 
 ### Terminal & Swallowing
 
@@ -109,13 +100,13 @@ window_rule_once=Parameter:Values,Parameter:Values,app_id:Values,title:Values
 | `is_unmanaged_global` | integer | `0` / `1` | Open as unmanaged global window (for desktop pets or camera windows) |
 | `is_named_scratchpad` | integer | `0` / `1` | 0: disable, 1: named scratchpad |
 
-> **Tip:** For scratchpad usage, see the [Scratchpad](/docs/window-management/scratchpad) page for detailed configuration examples.
+> **Tip:** For scratchpad usage, see the [Scratchpad](scratchpad.md) page for detailed configuration examples.
 
 ### Performance & Tearing
 
 | Parameter | Type | Values | Description |
 | :--- | :--- | :--- | :--- |
-| `force_tearing` | integer | `0` / `1` | Set window to tearing state, refer to [Tearing](/docs/configuration/monitors#tearing-game-mode) |
+| `force_tearing` | integer | `0` / `1` | Set window to tearing state, refer to [Tearing](../configuration/monitors.md#tearing-game-mode) |
 
 ### Examples
 
@@ -168,8 +159,6 @@ bind=alt,h,toggle_named_scratchpad,st-yazi,none,st -c st-yazi -e yazi
 
 You can set all parameters in one line. If only `id` is set, the rule is followed when the id matches. If any of `monitor_name`, `monitor_make`, `monitor_model`, or `monitor_serial` are set, the rule is followed only if **all** of the set monitor fields match.
 
-> **Warning:** Layouts set in tag rules have a higher priority than monitor rule layouts.
-
 **Format:**
 
 ```ini
@@ -179,8 +168,6 @@ tag_rule=id:Values,monitor_make:xxx,monitor_model:xxx,Parameter:Values
 tag_rule=id:*,Parameter:Values
 ```
 
-> **Tip:** See [Layouts](/docs/window-management/layouts#supported-layouts) for detailed descriptions of each layout type.
-
 | Parameter | Type | Values | Description |
 | :--- | :--- | :--- | :--- |
 | `id` | integer / wildcard | 0-9 / `*` | Match by tag id, 0 means the ~0 tag. Use `*` to match all tags at once |
@@ -188,46 +175,27 @@ tag_rule=id:*,Parameter:Values
 | `monitor_make` | string | monitor make | Match by monitor manufacturer |
 | `monitor_model` | string | monitor model | Match by monitor model |
 | `monitor_serial` | string | monitor serial | Match by monitor serial number |
-| `layout_name` | string | layout name | Layout name to set |
 | `no_render_border` | integer | `0` / `1` | Disable render border |
 | `open_as_floating` | integer | `0` / `1` | New open window will be floating|
 | `no_hide` | integer | `0` / `1` | Not hide even if the tag is empty |
-| `master_count` | integer | 0, 99 | Number of master windows |
-| `master_factor` | float | 0.1–0.9 | Master area factor |
-| `scroller_default_proportion` | float | 0.1-1.0 | Set scroller  default proportion. |
-| `scroller_default_proportion_single` | float | 0.1-1.0 | Set scroller auto adjust proportion when it is single window(only apply when set `scroller_ignore_proportion_single` to `0`) |
-| `scroller_ignore_proportion_single` | integer | `0` / `1` | Ignore scroller single proportion setting. |
 
 ### Examples
 
 ```ini
-# Set layout for all tags at once (equivalent to the two rules below)
-tag_rule=id:*,layout_name:scroller
+# Persistent tags 1-4, shown even when empty
+tag_rule=id:1,no_hide:1
+tag_rule=id:2,no_hide:1
+tag_rule=id:3,monitor_name:eDP-1,no_hide:1
+tag_rule=id:4,monitor_name:eDP-1,no_hide:1
 
-# Set layout for specific tags
-tag_rule=id:1,layout_name:scroller
-tag_rule=id:2,layout_name:scroller
-
-# Limit to specific monitor
-tag_rule=id:1,monitor_name:eDP-1,layout_name:scroller
-tag_rule=id:2,monitor_name:eDP-1,layout_name:scroller
-
-# Persistent tags (1-4) with layout assignment
-tag_rule=id:1,no_hide:1,layout_name:scroller
-tag_rule=id:2,no_hide:1,layout_name:scroller
-tag_rule=id:3,monitor_name:eDP-1,no_hide:1,layout_name:scroller
-tag_rule=id:4,monitor_name:eDP-1,no_hide:1,layout_name:scroller
-
-# Advanced tag configuration with master layout settings
-tag_rule=id:5,layout_name:tile,master_count:2,master_factor:0.6
-tag_rule=id:6,monitor_name:HDMI-A-1,layout_name:monocle,no_render_border:1
-
-# set scroller proportion for specific tag
-tag_rule=id:1,layout_name:scroller,scroller_default_proportion_single:0.5,scroller_ignore_proportion_single:0,scroller_default_proportion:0.9,monitor_name:HDMI-A-1
-
+# New windows on tag 5 open floating
+tag_rule=id:5,open_as_floating:1
 ```
 
-> **Tip:** For Waybar configuration with persistent tags, see [Status Bar](/docs/visuals/status-bar) documentation.
+Every tag uses the canvas. A `layout_name` in a tag rule still parses, so a Mango config loads, but it does nothing.
+
+
+> **Tip:** For Waybar configuration with persistent tags, see [Status Bar](../visuals/status-bar.md) documentation.
 
 ---
 
@@ -241,7 +209,7 @@ You can set all parameters in one line. Target "layer shell" surfaces like statu
 layer_rule=layer_name:Values,Parameter:Values,Parameter:Values
 ```
 
-> **Tip:** You can use `mmsg get last_open_surface` to get the last open layer name for debugging.
+> **Tip:** You can use `dfmsg get last_open_surface` to get the last open layer name for debugging.
 
 | Parameter | Type | Values | Description |
 | :--- | :--- | :--- | :--- |
@@ -253,7 +221,7 @@ layer_rule=layer_name:Values,Parameter:Values,Parameter:Values
 | `no_shadow` | integer | `0` / `1` | Disable layer shadow |
 | `shield_when_capture`| integer | `0` / `1` | Shield layer when captured.(it is better to combination with `no_animation:1`) |
 
-> **Tip:** For animation types, see [Animations](/docs/visuals/animations#animation-types). For visual effects, see [Window Effects](/docs/visuals/effects).
+> **Tip:** For animation types, see [Animations](../visuals/animations.md#animation-types). For visual effects, see [Window Effects](../visuals/effects.md).
 
 ### Examples
 

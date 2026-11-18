@@ -14,6 +14,8 @@
 #include "mango/common/input-event-codes.h"
 #include "mango/common/log.h"
 #include "mango/common/server.h"
+#include "mango/draw/shader_bg.h"
+#include "mango/layout/canvas.h"
 #include "mango/common/util.h"
 #include "mango/config/error_nag.h"
 #include "mango/config/error_store.h"
@@ -50,6 +52,74 @@ static bool is_title_message_bar_decorate_key(const char *key,
 	snprintf(candidate, sizeof(candidate), "title_message_bar_decorate_%s",
 			 name);
 	return strcmp(key, candidate) == 0;
+}
+
+// canvas_drop_x and canvas_select_x - same window-like keys for both boxes
+// canvas_select_mode and _enabled and canvas_select_window_color also live here
+// since they share the prefix
+static bool parse_canvas_box_key(Config *config, const char *key,
+								 const char *value) {
+	bool drop = strncmp(key, "canvas_drop_", 12) == 0;
+	const char *k = key + (drop ? 12 : 14);
+	canvas_box_style *st = drop ? &config->canvas_drop : &config->canvas_select;
+	float *color = NULL;
+	bool *color_set = NULL;
+
+	if (!drop && strcmp(k, "mode") == 0) {
+		config->canvas_select_mode = strcmp(value, "contain") == 0
+										 ? CANVAS_SELECT_CONTAIN
+										 : CANVAS_SELECT_INTERSECT;
+		return true;
+	}
+	if (!drop && strcmp(k, "clear_on_click") == 0) {
+		config->canvas_select_clear_on_click = CLAMP_INT(atoi(value), 0, 1);
+		return true;
+	}
+	if (!drop && strcmp(k, "enabled") == 0) {
+		config->canvas_select_enabled = CLAMP_INT(atoi(value), 0, 1);
+		return true;
+	}
+	if (!drop && strcmp(k, "window_color") == 0)
+		color = config->canvas_select_window_color,
+		color_set = &config->canvas_select_window_color_set;
+	else if (!drop && strcmp(k, "color") == 0)
+		color = st->fill, color_set = &st->fill_set;
+	else if (strcmp(k, "border_color") == 0)
+		color = st->border_color, color_set = &st->border_color_set;
+	else if (strcmp(k, "shadow_color") == 0)
+		color = st->shadow_color, color_set = &st->shadow_color_set;
+	if (color) {
+		int64_t c = parse_color(value);
+		if (c == -1) {
+			mango_error(false, WLR_ERROR, "Invalid %s format: %s\n", key,
+						value);
+			return false;
+		}
+		convert_hex_to_rgba(color, c);
+		*color_set = true;
+		return true;
+	}
+	if (strcmp(k, "border_width") == 0)
+		st->border_width = CLAMP_INT(atoi(value), 0, 200);
+	else if (strcmp(k, "border_radius") == 0)
+		st->radius = CLAMP_INT(atoi(value), 0, 1000);
+	else if (strcmp(k, "shadow") == 0)
+		st->shadow = CLAMP_INT(atoi(value), 0, 1);
+	else if (strcmp(k, "shadow_size") == 0)
+		st->shadow_size = CLAMP_INT(atoi(value), 0, 1000);
+	else if (strcmp(k, "shadow_blur") == 0)
+		st->shadow_blur = CLAMP_FLOAT(atof(value), 0.0f, 1000.0f);
+	else if (strcmp(k, "shadow_position_x") == 0)
+		st->shadow_position_x = CLAMP_INT(atoi(value), -1000, 1000);
+	else if (strcmp(k, "shadow_position_y") == 0)
+		st->shadow_position_y = CLAMP_INT(atoi(value), -1000, 1000);
+	else if (strcmp(k, "blur") == 0)
+		st->blur = CLAMP_INT(atoi(value), 0, 1);
+	else {
+		mango_error(false, WLR_ERROR, "Unknown option: %s\n", key);
+		return false;
+	}
+	return true;
 }
 
 bool parse_option(Config *config, char *key, char *value, int line_number) {
@@ -861,6 +931,67 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		config->jumplabeldata.padding_x = CLAMP_INT(atoi(value), 0, 100);
 	} else if (strcmp(key, "jump_label_decorate_padding_y") == 0) {
 		config->jumplabeldata.padding_y = CLAMP_INT(atoi(value), 0, 100);
+	} else if (strcmp(key, "canvas_zoom_step") == 0) {
+		config->canvas_zoom_step = atof(value);
+	} else if (strcmp(key, "canvas_follow_focus") == 0) {
+		config->canvas_follow_focus = atoi(value);
+	} else if (strcmp(key, "canvas_follow_focus_delay") == 0) {
+		// ms the pointer sits on a window before the camera follows it - 0 is
+		// instant
+		config->canvas_follow_focus_delay = atoi(value);
+	} else if (strcmp(key, "canvas_placement") == 0) {
+		// words not numbers - canvas only key so no mango compat to keep
+		// auto is the old name and still means the same
+		config->canvas_placement =
+			strcmp(value, "auto") == 0 || strcmp(value, "auto-focused") == 0
+				? CANVAS_PLACE_FOCUSED
+			: strcmp(value, "auto-recent") == 0	 ? CANVAS_PLACE_RECENT
+			: strcmp(value, "auto-compact") == 0 ? CANVAS_PLACE_COMPACT
+												 : CANVAS_PLACE_CENTER;
+	} else if (strcmp(key, "canvas_shader") == 0) {
+		snprintf(config->canvas_shader, sizeof(config->canvas_shader), "%s",
+				 value);
+	} else if (strncmp(key, "canvas_drop_", 12) == 0 ||
+			   strncmp(key, "canvas_select_", 14) == 0) {
+		if (!parse_canvas_box_key(config, key, value))
+			return false;
+	} else if (strcmp(key, "canvas_resize_snap") == 0) {
+		if (strcmp(value, "edge") == 0)
+			config->canvas_resize_snap = CANVAS_RESIZE_SNAP_EDGE;
+		else if (strcmp(value, "off") == 0)
+			config->canvas_resize_snap = CANVAS_RESIZE_SNAP_OFF;
+		else
+			config->canvas_resize_snap = CANVAS_RESIZE_SNAP_MOVE;
+	} else if (strcmp(key, "canvas_snap_no_overlap") == 0) {
+		config->canvas_snap_no_overlap = CLAMP_INT(atoi(value), 0, 1);
+	} else if (strcmp(key, "canvas_precompute") == 0) {
+		config->canvas_precompute = CLAMP_INT(atoi(value), 0, 1);
+	} else if (strcmp(key, "canvas_cluster_max_distance") == 0 ||
+			   strcmp(key, "canvas_cluster_distance") == 0) {
+		// canvas units or snap - snap means only windows at the tiling gap
+		// count as connected second spelling is the old key name
+		config->canvas_cluster_snap = strcmp(value, "snap") == 0;
+		if (!config->canvas_cluster_snap)
+			config->canvas_cluster_distance = fmax(0.0, atof(value));
+	} else if (strcmp(key, "canvas_cluster_min_size") == 0) {
+		config->canvas_cluster_min_size = atoi(value) < 1 ? 1 : atoi(value);
+	} else if (strcmp(key, "canvas_cascade_scope") == 0) {
+		config->canvas_cascade_scope =
+			strcmp(value, "all") == 0 ? CANVAS_SCOPE_ALL : CANVAS_SCOPE_CLUSTER;
+	} else if (strcmp(key, "canvas_cascade_anchor") == 0) {
+		config->canvas_cascade_anchor = strcmp(value, "viewport") == 0
+											? CANVAS_ANCHOR_VIEWPORT
+											: CANVAS_ANCHOR_CLUSTER;
+	} else if (strcmp(key, "canvas_overview_mode") == 0) {
+		config->canvas_overview_mode = strcmp(value, "windows") == 0
+										   ? CANVAS_OVERVIEW_WINDOWS
+										   : CANVAS_OVERVIEW_CLUSTERS;
+	} else if (strcmp(key, "canvas_overview_compression") == 0) {
+		config->canvas_overview_compression = fmax(1.0, atof(value));
+	} else if (strcmp(key, "canvas_overview_spacing") == 0) {
+		config->canvas_overview_spacing = fmax(0.0, atof(value));
+	} else if (strcmp(key, "canvas_overview_margin") == 0) {
+		config->canvas_overview_margin = fmax(0.0, atof(value));
 	} else if (strcmp(key, "mouse_accel_profile") == 0) {
 		config->mouse_accel_profile = atoi(value);
 	} else if (strcmp(key, "mouse_accel_speed") == 0) {
@@ -926,7 +1057,25 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 	} else if (strcmp(key, "special_gap_outer_vertical") == 0) {
 		config->special_gappov = atoi(value);
 	} else if (strcmp(key, "border_px") == 0) {
-		config->borderpx = atoi(value);
+		config->border_outer_px = atoi(value);
+	} else if (strcmp(key, "inner_border_px") == 0) {
+		config->inner_borderpx = atoi(value);
+	} else if (strcmp(key, "inner_border_gap") == 0) {
+		config->inner_border_gap = atoi(value);
+	} else if (strcmp(key, "inner_border_color") == 0 ||
+			   strcmp(key, "inner_focus_color") == 0) {
+		bool focus = strcmp(key, "inner_focus_color") == 0;
+		int64_t color = parse_color(value);
+		if (color == -1) {
+			mango_error(false, WLR_ERROR, "Invalid %s format: %s\n", key,
+						value);
+			return false;
+		}
+		convert_hex_to_rgba(focus ? config->inner_focuscolor
+								  : config->inner_bordercolor,
+							color);
+		*(focus ? &config->inner_focuscolor_set
+				: &config->inner_bordercolor_set) = true;
 	} else if (strcmp(key, "group_bar_height") == 0) {
 		config->group_bar_height = atoi(value);
 	} else if (strcmp(key, "tab_bar_height") == 0) {
@@ -2382,6 +2531,41 @@ bool apply_option_expanded(Config *config, char *key, char *value,
 }
 
 void set_value_default() {
+	// canvas defaults
+	// seed them here and nowhere else - they used to be set in override_config
+	// which runs after parse_config_file and stomped the users config
+	// follow_focus could never be turned on and placement=auto got forced to
+	// centre override_config is for clamping not defaults
+	config.canvas_zoom_step = 112.0;
+	config.canvas_placement = CANVAS_PLACE_CENTER;
+	config.canvas_follow_focus = 0;
+	config.canvas_follow_focus_delay = 0;
+	for (int b = 0; b < 2; b++) {
+		canvas_box_style *st = b ? &config.canvas_select : &config.canvas_drop;
+		memset(st, 0, sizeof(*st));
+		st->radius = -1;
+		st->shadow_size = -1;
+		st->shadow_blur = -1.0f;
+		st->shadow_position_x = INT32_MIN;
+		st->shadow_position_y = INT32_MIN;
+	}
+	config.canvas_cluster_distance = 128.0;
+	config.canvas_cluster_snap = false;
+	config.canvas_cluster_min_size = 3;
+	config.canvas_cascade_scope = CANVAS_SCOPE_CLUSTER;
+	config.canvas_cascade_anchor = CANVAS_ANCHOR_CLUSTER;
+	config.canvas_overview_mode = CANVAS_OVERVIEW_CLUSTERS;
+	config.canvas_overview_compression = 1200.0;
+	config.canvas_overview_spacing = 24.0;
+	config.canvas_overview_margin = 12.0;
+	config.canvas_select_enabled = 1;
+	config.canvas_select_clear_on_click = 1;
+	config.canvas_select_mode = CANVAS_SELECT_INTERSECT;
+	config.canvas_select_window_color_set = false;
+	config.canvas_snap_no_overlap = 0;
+	config.canvas_resize_snap = CANVAS_RESIZE_SNAP_MOVE;
+	config.canvas_precompute = 1;
+
 	config.animations = 1;
 	config.layer_animations = 0;
 	config.animation_type_open = ANIM_TYPE_UNSET;
@@ -2492,7 +2676,11 @@ void set_value_default() {
 	config.idleinhibit_ignore_visible = 0;
 	config.idleinhibit_when_fullscreen = 0;
 
-	config.borderpx = 4;
+	config.border_outer_px = 4;
+	config.inner_borderpx = 0;
+	config.inner_border_gap = 0;
+	config.inner_bordercolor_set = false;
+	config.inner_focuscolor_set = false;
 	config.group_bar_height = 33;
 	config.tab_bar_height = 33;
 	config.title_message_bar_height = 52;
@@ -2931,7 +3119,14 @@ void override_config(void) {
 	config.special_gappiv = CLAMP_INT(config.special_gappiv, 0, 1000);
 	config.special_gappoh = CLAMP_INT(config.special_gappoh, 0, 1000);
 	config.special_gappov = CLAMP_INT(config.special_gappov, 0, 1000);
-	config.borderpx = CLAMP_INT(config.borderpx, 0, 200);
+	// borderpx is the whole frame border every layout uses, worked out from
+	// the keys each time so a setoption cant add the inner ring twice
+	config.border_outer_px = CLAMP_INT(config.border_outer_px, 0, 200);
+	config.inner_borderpx = CLAMP_INT(config.inner_borderpx, 0, 200);
+	config.inner_border_gap = CLAMP_INT(config.inner_border_gap, 0, 200);
+	config.borderpx = config.border_outer_px;
+	if (config.inner_borderpx > 0 && config.border_outer_px > 0)
+		config.borderpx += config.inner_border_gap + config.inner_borderpx;
 	config.group_bar_height = CLAMP_INT(config.group_bar_height, 0, 500);
 	config.tab_bar_height = CLAMP_INT(config.tab_bar_height, 0, 500);
 	config.title_message_bar_height =

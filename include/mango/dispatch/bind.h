@@ -73,6 +73,7 @@ int32_t set_key_mode(const Arg *arg);
 int32_t switch_keyboard_layout(const Arg *arg);
 int32_t set_layout(const Arg *arg);
 int32_t switch_layout(const Arg *arg);
+void layout_change_refused(const char *what);
 int32_t set_master_factor(const Arg *arg);
 int32_t quit(const Arg *arg);
 int32_t move_resize(const Arg *arg);

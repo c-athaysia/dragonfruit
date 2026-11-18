@@ -69,9 +69,36 @@ struct Client {
 	struct wlr_box geom, pending, float_geom, animainit_geom,
 		overview_backup_geom, current,
 		drag_begin_geom; /* layout-relative, includes border */
+	// position on the infinite plane - not tied to camera or monitor
+	// only canvas layout uses it
+	// canvas_placed is false until the client got a spot
+	// double because ints make drags snap in 1/zoom pixel steps
+	struct {
+		double x, y, width, height;
+	} canvas_geom;
+	bool canvas_placed;
+	// set while the canvas puts a window back to its old size after fullscreen
+	// or maximize normally canvas learns canvas_geom from the live size but
+	// right after fullscreen the client reports the monitor size - bad so
+	// learning stops and the stored size gets pushed instead until the client
+	// matches again
+	bool canvas_resize_pending;
+	// when canvas_seed_client placed it
+	// a focus right after that is the auto focus not the user
+	int64_t canvas_seeded_ms;
+	// in the multi select set - drawn in canvas_select_window_color and moves
+	// with any dragged selected window
+	bool canvas_selected;
+	// cascade glide from here to canvas_geom on the monitor canvas_layout clock
+	bool canvas_layout_moving;
+	double canvas_from_x, canvas_from_y;
+	// overview display position - redone every arrange
+	double ov_x, ov_y;
 	Monitor *mon;
 	struct wlr_scene_tree *scene;
 	struct wlr_scene_rect *border; /* top, bottom, left, right */
+	// double border inner ring, made at map, disabled while it is off
+	struct wlr_scene_rect *border_inner;
 	struct wlr_scene_rect *droparea;
 	struct wlr_scene_rect *splitindicator[4];
 	struct wlr_scene_shadow *shadow;
@@ -300,6 +327,7 @@ void client_notify_enter(struct wlr_surface *s, struct wlr_keyboard *kb);
 void client_send_close(Client *c);
 void client_set_border_color(Client *c, const float color[4]);
 void client_set_state_colors(Client *c, const float border_color[4],
+							 const float inner_color[4],
 							 const float dim_color[4]);
 void client_set_scale(struct wlr_surface *s, float scale);
 
@@ -354,6 +382,7 @@ Client *direction_select(const Arg *arg);
 Client *client_focus_top(Monitor *m);
 Client *get_next_stack_client(Client *c, bool reverse);
 float *get_border_color(Client *c);
+float *get_inner_border_color(Client *c);
 float *get_dim_color(Client *c);
 
 int32_t is_single_bit_set(uint32_t x);

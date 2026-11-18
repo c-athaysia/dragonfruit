@@ -62,6 +62,49 @@ struct Monitor {
 	uint32_t ovbk_prev_tagset;
 	Client *sel, *prevsel;
 	int32_t isoverview;
+	// canvas camera - cam_x cam_y is the canvas point at the monitor top left
+	// zoom is the camera scale
+	double cam_x, cam_y;
+	// auto-recent - window the user was working in - new windows cluster around
+	// it
+	Client *canvas_work_anchor;
+	// canvas layout animation clock - see canvas_layout_pos
+	bool canvas_layout_animating;
+	int64_t canvas_layout_start;
+	int32_t canvas_layout_dur;
+	double zoom;
+	// camera velocity in px per sec
+	// drags set it keys add to it friction eats it
+	// integrated in canvas_camera_tick from the output frame handler
+	double cam_vx, cam_vy;
+	// zoom animation - eased with mango curves unlike the physical pan
+	// zoom_anchor_* is the canvas point held at the viewport centre so content
+	// doesnt slide
+	double zoom_from, zoom_target;
+	double zoom_anchor_cx, zoom_anchor_cy;
+	// anchor is interpolated too so the same code does zoom and fly-to
+	double anchor_from_cx, anchor_from_cy;
+	// while set canvas_camera_tick leaves per window animation alone so cascade
+	// and overview can ease in
+	int64_t layout_anim_until;
+	int64_t zoom_anim_start;
+	int32_t zoom_anim_duration;
+	bool zoom_animating;
+	// overview - distances squashed toward the centroid and camera restored on
+	// exit canvas_geom never changes - view only
+	bool canvas_overview;
+	// 1.0 is full overview 0.0 is real positions - animated so it glides
+	double ov_blend, ov_blend_from, ov_blend_to;
+	double ov_restore_cx, ov_restore_cy, ov_restore_zoom;
+	int64_t cam_last_tick_ms;
+	// background shader - one offscreen buffer per output redrawn only when
+	// camera moves or output resizes - see draw/shader_bg.c
+	struct wlr_scene_buffer *bg_node;
+	struct wlr_buffer *bg_buf;
+	int32_t bg_w, bg_h;
+	double bg_cam_x, bg_cam_y;
+	double bg_zoom;
+	bool bg_dirty;
 	int32_t is_jump_mode;
 	int32_t is_in_hotarea;
 	int32_t ov_normal_mode; /* Uses the normal grid layout when entering via the

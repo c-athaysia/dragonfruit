@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+	<maintainer type="person">
+		<email>lucien09@proton.me</email>
+	</maintainer>
+	<longdescription>
+		Dragonfruit is an infinite-canvas Wayland compositor forked from Mango.
+		Every window has a position on an unbounded plane held in double
+		precision, and the monitor is a camera over it: panning and zooming move
+		the camera and never rearrange or resize anything.
+	</longdescription>
+	<use>
+		<flag name="asan">Build with Clang/GCC AddressSanitizer instrumentation.</flag>
+	</use>
+	<upstream>
+		<bugs-to>https://codeberg.org/central-lambda-group/dragonfruit/issues</bugs-to>
+	</upstream>
+</pkgmetadata>

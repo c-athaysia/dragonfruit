@@ -159,7 +159,7 @@ Or bind it manually to a key:
 bind=alt,shift_l,switch_keyboard_layout
 ```
 
-Use `mmsg get keyboardlayout` to query the current layout.
+Use `dfmsg get keyboardlayout` to query the current layout.
 
 ---
 
@@ -200,12 +200,12 @@ Use `device_rule` to override parameters for a specific device.
 The easiest way to get a device's name is to watch for it: run
 
 ```bash
-mmsg watch all-devices
+dfmsg watch all-devices
 ```
 
 then use the device (type on a keyboard, move a mouse, scroll a trackpad).
 Each event prints the name of the device that triggered it, so you can match
-every physical device to its name without guessing. `mmsg get all-devices`
+every physical device to its name without guessing. `dfmsg get all-devices`
 also lists all connected devices at once if you prefer.
 
 **Syntax:**
@@ -235,7 +235,7 @@ device_rule=type:trackpad,tap_to_click:1
 device_rule=name:ELAN Touchscreen,monitor:HDMI-A-1
 ```
 
-Apply changes with `mmsg dispatch reload_config` or restart mango.
+Apply changes with `dfmsg dispatch reload_config` or restart Dragonfruit.
 
 ### Rule Options
 
@@ -263,9 +263,9 @@ the XKB defaults), so a rule like `kb_layout:pt` is not affected by a global
 | Common | `middle_button_emulation` | `1` emulates the middle button |
 | Common | `send_events_mode` | `0` enabled, `1` disabled, `2` disabled with external mouse |
 | Common | `scroll_button` / `click_method` / `drag_lock` / `button_map` | libinput settings, see descriptions below |
-| Touch / tablet | `monitor` | Pin the touch or tablet device to one output. Accepts a [monitor spec](/docs/configuration/monitors#monitor-spec-format); unset follows the current screen |
+| Touch / tablet | `monitor` | Pin the touch or tablet device to one output. Accepts a [monitor spec](monitors.md#monitor-spec-format); unset follows the current screen |
 | Tablet | `map_focus_monitor` | `1` makes the tablet follow the currently focused monitor. Off by default, so a tablet stays unmapped unless `monitor` is also set |
 
 > **Info:** If a rule's keyboard layout fails to compile (e.g. `kb_layout:ru`
-> with `kb_variant:dvorak`), mango logs an error and falls back to the global
+> with `kb_variant:dvorak`), Dragonfruit logs an error and falls back to the global
 > layout instead of crashing.

@@ -1,26 +1,24 @@
 ---
 title: Introduction
-description: A lightweight and feature-rich Wayland compositor based on dwl.
+description: An infinite-canvas Wayland compositor forked from Mango.
 ---
 
 
-**mango** is a Wayland compositor based on [dwl](https://codeberg.org/dwl/dwl/). It aims to be as lightweight as `dwl` and can be built completely within a few seconds, without compromising on functionality.
-
-> **Philosophy:** **Lightweight & Fast**: mango is designed to be minimal yet functional.
+**Dragonfruit** is a Wayland compositor forked from [Mango](https://github.com/mangowm/mango), which is based on [dwl](https://codeberg.org/dwl/dwl/). It replaces Mango's tiling layouts with an infinite canvas: windows live on a 2D plane and the screen is a camera you pan and zoom. Everything else is still Mango, and a stock Mango config drops in unchanged.
 
 ## Feature Highlights
 
-Beyond basic window management, mangowm provides a rich set of features designed for a modern Wayland experience.
+Beyond basic window management, Dragonfruit provides a rich set of features designed for a modern Wayland experience.
 
-- **[Animations](/docs/visuals/animations)** — Smooth, customizable animations for opening, moving, closing windows and tag switching.
-- **[Layouts](/docs/window-management/layouts)** — Supports Scroller, Master-Stack, Monocle, Grid, Deck, and more, with per-tag layouts.
-- **[Visual Effects](/docs/visuals/effects)** — Built-in blur, shadows, corner radius, and opacity effects powered by scenefx.
-- **[IPC & Scripting](/docs/ipc)** — Control the compositor externally with robust IPC support for custom scripts and widgets.
+- **[Animations](visuals/animations.md)** — Smooth, customizable animations for opening, moving, closing windows and tag switching.
+- **[Canvas](window-management/canvas.md)** — An infinite plane with a camera, snapping, clusters, a logarithmic overview and GLSL backgrounds.
+- **[Visual Effects](visuals/effects.md)** — Built-in blur, shadows, corner radius, and opacity effects powered by scenefx.
+- **[IPC & Scripting](ipc.md)** — Control the compositor externally with robust IPC support for custom scripts and widgets.
 
 ## Additional Features
 
 - **XWayland Support** — Excellent compatibility for legacy X11 applications.
-- **Tag System** — Uses tags instead of workspaces, allowing separate window layouts for each tag.
+- **Tag System** — Uses tags instead of workspaces, each a filter on the same canvas.
 - **Input Methods** — Great support for text input v2/v3 (Fcitx5, IBus).
 - **Window States** — Rich states including swallow, minimize, maximize, fullscreen, and overlay.
 - **Hot-Reload Config** — Simple external configuration that supports hot-reloading without restarting.
@@ -28,13 +26,13 @@ Beyond basic window management, mangowm provides a rich set of features designed
 
 ## Community
 
-- **[Join the mangowm Discord](https://discord.gg/CPjbDxesh5)** — Chat with the community, get support, share your setup, and stay updated with the latest mangowm news.
-- **[Join the GitHub Discussions](https://github.com/mangowm/mango/discussions)** — Ask questions, request features, report issues, or share ideas directly with contributors and other users.
+Report bugs and ideas on [Codeberg](https://codeberg.org/central-lambda-group/dragonfruit/issues).
 
 ## Acknowledgements
 
 This project is built upon the hard work of several open-source projects:
 
+- **[Mango](https://github.com/mangowm/mango)** — The compositor Dragonfruit is forked from.
 - **[wlroots](https://gitlab.freedesktop.org/wlroots/wlroots)** — Implementation of the Wayland protocol.
 - **[mwc](https://github.com/nikoloc/mwc)** — Basal window animation reference.
 - **[dwl](https://codeberg.org/dwl/dwl)** — Basal dwl features.

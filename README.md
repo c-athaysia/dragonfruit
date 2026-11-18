@@ -1,51 +1,65 @@
 <div align="center">
-  <img src="assets/mango.svg" alt="Mango Logo" width="120"/>
+  <img alt="Dragonfruit Logo (ADD!)" width="120"/>
 
-  <h1>Mango Wayland Compositor</h1>
+  <h1>Dragonfruit Wayland Compositor</h1>
 
-  <p>A fast, feature-rich Wayland compositor.</p>
+  <p>An infinite-canvas Wayland compositor forked from <a href="https://github.com/mangowm/mango">Mango</a></p>
 
-<a href="https://github.com/mangowm/mango/stargazers"><img src="https://img.shields.io/github/stars/mangowm/mango?style=flat&color=orange" alt="Stars"/></a>
-<a href="https://github.com/mangowm/mango/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue?style=flat" alt="License"/></a>
-<a href="https://repology.org/project/mangowm/versions"><img src="https://repology.org/badge/tiny-repos/mangowm.svg" alt="Packaged in"/></a>
-<a href="https://discord.gg/CPjbDxesh5"><img src="https://img.shields.io/discord/1430889676264177687?style=flat&logo=discord&label=discord" alt="Discord"/></a>
+<a href="https://codeberg.org/central-lambda-group/dragonfruit/stars"><img src="https://img.shields.io/gitea/stars/central-lambda-group/dragonfruit?gitea_url=https%3A%2F%2Fcodeberg.org&style=flat" alt="Stars"/></a>
+<a href="https://codeberg.org/central-lambda-group/dragonfruit/src/branch/dragonfruit/LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue?style=flat" alt="License"/></a>
 
 </div>
 
 ---
 
-https://github.com/user-attachments/assets/bb83004a-0563-4b48-ad89-6461a9b78b1f
+Your windows should not be confined by the edge of your monitor. Your windows should not be confined by the rules of a tiling window manager. But they are.
+Dragonfruit fixes such problems beautifully. 
 
-https://github.com/user-attachments/assets/be85e13f-7798-456d-957e-f8931687392e
+Dragonfruit places your windows on an infinite plane with your screen being a camera looking at part of it.
+Put your windows where they belong, pan over to them, and zoom out to see more.
 
+Dragonfruit removes Mango's layouts and replaces them with a canvas.
+Everything else is still Mango.
 
+## Why Dragonfruit?
 
-> See all layouts in action at [mangowm.github.io](https://mangowm.github.io/)
+Everything you get from Mango comes along for free:
 
-## Why Mango?
+- **Lightweight & fast** no functionality compromised
+- **Excellent xwayland support** run X11 apps without friction (supports scale without blurring)
+- **Tags, not workspaces** each tag maintains its own canvas
+- **Smooth animations** window open/move/close, transitions layer surfaces
+- **Rich window states** swallow, minimize, maximize, global, overlay, fakefullscreen
+- **Window effects** blur, shadow, corner radius, opacity (via scenefx)
+- **Excellent input method support** text-input v2/v3
+- **Powerful scratchpad** sway-style scratchpad, special workspace and named-scratchpad support
+- **Label jump overview** see all windows at a glance with easymotion jump labels
+- **IPC** send/receive messages from external programs
+- **Hot-reload config** no restart needed for keybinding changes
+- **Zero flickering** every frame is correct
 
-- **Lightweight & fast** — no functionality compromised
-- **Excellent xwayland support** — run X11 apps without friction(Supports scale without blurring)
-- **Tags, not workspaces** — each tag maintains its own independent window layout
-- **Smooth animations** — window open/move/close, tag transitions, layer surfaces
-- **Flexible layouts** — scroller, vertical-scroller, master-stack, monocle, dwindle and more
-- **Rich window states** — swallow, group, minimize, maximize, global, overlay, fakefullscreen
-- **Window effects** — blur, shadow, corner radius, opacity (via scenefx)
-- **Excellent input method support** — text-input v2/v3
-- **Powerful scratchpad** — sway-style scratchpad, special workspace and named-scratchpad support
-- **label jump overview** — see all windows at a glance with easymotion jump label.
-- **Gnome-style application switcher** — quick switching between apps
-- **IPC** — send/receive messages from external programs
-- **Hot-reload config** — no restart needed for keybinding changes
-- **Zero flickering** — every frame is correct
+And here's what Dragonfruit adds:
+
+- **Canvas layout** the obvious one
+- **Logarithmic app switcher** quick switching between apps
+- **Background GLSL shaders** so you can tell the camera is moving even with no windows open
+- **Double borders** i wanted them
 
 ## Vision
 
-**Stability first.** After months of testing, Mango is solid enough for daily use. Breaking changes will be minimal.
+**Maintain Stability.** Dragonfruit only pulls from Mango when it gets a new
+version number, and every new bug gets fixed before this repo's own version goes up.
 
-**Practicality over novelty.** Features get added when they genuinely improve daily workflows — not for the sake of completeness.
+**Visual Perfection.** Visual bugs get solved before a new version number too.
 
-**Focused scope.** Niche requests are evaluated by community interest. Significant upvotes move things forward.
+**Canvas Focus.** Code for the other layout modes isn't relevant to the canvas,
+so it gets removed.
+
+## Configuration
+
+A stock Mango config drops in perfectly functional. The canvas only adds keys of its own.
+See [docs/window-management/canvas.md](docs/window-management/canvas.md) for the
+canvas options and dispatches, and [docs/ipc.md](docs/ipc.md) for `dfmsg`.
 
 ## AI Policy
 
@@ -55,90 +69,27 @@ https://github.com/user-attachments/assets/be85e13f-7798-456d-957e-f8931687392e
 
 ## Installation
 
-[![Packaging status](https://repology.org/badge/vertical-allrepos/mangowm.svg)](https://repology.org/project/mangowm/versions)
-
-### Arch Linux
-
-```bash
-yay -S mangowm-git
-```
-#### use my config
-- install dependencies
-```
-yay -S rofi foot xdg-desktop-portal-wlr swaybg waybar wl-clip-persist cliphist wl-clipboard wlsunset xfce-polkit swaync pamixer wlr-dpms sway-audio-idle-inhibit-git swayidle dimland-git brightnessctl swayosd wlr-randr grim slurp satty swaylock-effects-git wlogout sox
-```
-- clone config
-```
-git clone https://github.com/DreamMaoMao/mango-config.git ~/.config/mango
-```
-
-### Other distributions
-
-See the [Installation Guide](https://mangowm.github.io/docs/installation) for Fedora, Gentoo, Guix, NixOS, openSUSE, PikaOS, AerynOS, and building from source.
+See [docs/installation.md](docs/installation.md) for dependencies, per-distribution
+steps, running from a build tree, and troubleshooting.
 
 ## Documentation
 
-- **[mangowm.github.io](https://mangowm.github.io/)** — website docs with configuration reference, keybindings, layouts, IPC, and more
-- **[GitHub Wiki](https://github.com/mangowm/mango/wiki/)** — community-maintained wiki
+- [docs/](docs/index.md): installation, configuration, canvas, bindings, IPC.
 
 ## Community
 
-Join us on **[Discord](https://discord.gg/CPjbDxesh5)**
+No community yet. (TODO: Discord server.)
 
 ## Acknowledgements
 
-- [wlroots](https://gitlab.freedesktop.org/wlroots/wlroots) — Wayland protocol implementation
-- [dwl](https://codeberg.org/dwl/dwl) — the foundation Mango builds on
-- [scenefx](https://github.com/wlrfx/scenefx) — window effects library
-- [owl](https://github.com/dqrk0jeste/owl) — animation groundwork
-- [sway](https://github.com/swaywm/sway) — protocol reference
+- [mango](https://github.com/mangowm/mango) — the upstream Dragonfruit derives from
+  - [wlroots](https://gitlab.freedesktop.org/wlroots/wlroots) — Wayland protocol implementation
+  - [dwl](https://codeberg.org/dwl/dwl) — the foundation Mango builds on
+  - [scenefx](https://github.com/wlrfx/scenefx) — window effects library
+  - [owl](https://github.com/dqrk0jeste/owl) — animation groundwork
+  - [sway](https://github.com/swaywm/sway) — protocol reference
+- [vxwm](https://codeberg.org/wh1tepearl/vxwm) — Dragonfruit's inspiration
 
-## Sponsor
+## LLM Usage Disclosure
 
-If Mango makes your desktop better, consider supporting its development.
-
-Thanks to everyone who has sponsored this project:
-
-<table>
-  <tr>
-    <!-- add new sponsors here: copy the <td>...</td> block below -->
-    <td align="center">
-      <a href="https://github.com/dl09r">
-        <img src="https://unavatar.io/github/dl09r" width="48" style="border-radius:50%"/><br/>
-        <sub>dl09r</sub>
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/tonybanters">
-        <img src="https://unavatar.io/github/tonybanters" width="48" style="border-radius:50%"/><br/>
-        <sub>tonybanters</sub>
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/vinthara">
-        <img src="https://unavatar.io/github/vinthara" width="48" style="border-radius:50%"/><br/>
-        <sub>vinthara</sub>
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/stepbrobd">
-        <img src="https://unavatar.io/github/stepbrobd" width="48" style="border-radius:50%"/><br/>
-        <sub>stepbrobd</sub>
-      </a>
-    </td>
-  </tr>
-</table>
-
-Crypto donations accepted:
-
-<table>
-  <tr>
-    <td valign="middle">
-      <strong>Network:</strong> BEP20 (BSC)<br/>
-      <strong>Address:</strong> <code>0xf9cda472f2556671d2504afc4c35340ec5615da1</code>
-    </td>
-    <td valign="middle">
-      <img width="120" alt="sponsor QR" src="assets/crypto_sponserme_qrcode.png" />
-    </td>
-  </tr>
-</table>
+This project uses local-run LLMs for planning, commit message writing, code commenting, and feedback when I'm stuck.

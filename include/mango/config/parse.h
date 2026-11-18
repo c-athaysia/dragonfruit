@@ -4,6 +4,49 @@
 #include "mango/common/types.h"
 #include "mango/dispatch/bind.h"
 #include <scenefx/types/fx/blur_data.h>
+
+// where a new window lands
+// decorated canvas box for the snap preview and the selection band
+// -1 or INT32_MIN or *_set false means same as the window option
+typedef struct {
+	float fill[4];
+	bool fill_set; // canvas_select only - drop box fills with dropcolor
+	int32_t border_width;
+	float border_color[4];
+	bool border_color_set;
+	int32_t radius;
+	int32_t shadow;
+	int32_t shadow_size;
+	float shadow_blur;
+	float shadow_color[4];
+	bool shadow_color_set;
+	int32_t shadow_position_x, shadow_position_y;
+	int32_t blur;
+} canvas_box_style;
+
+enum { CANVAS_SCOPE_CLUSTER = 0, CANVAS_SCOPE_ALL = 1 };
+enum { CANVAS_ANCHOR_CLUSTER = 0, CANVAS_ANCHOR_VIEWPORT = 1 };
+enum { CANVAS_OVERVIEW_CLUSTERS = 0, CANVAS_OVERVIEW_WINDOWS = 1 };
+enum { CANVAS_SELECT_INTERSECT = 0, CANVAS_SELECT_CONTAIN = 1 };
+enum {
+	// release moves the window next to its neighbour
+	CANVAS_RESIZE_SNAP_MOVE = 0,
+	// only the dragged edges snap
+	CANVAS_RESIZE_SNAP_EDGE = 1,
+	CANVAS_RESIZE_SNAP_OFF = 2,
+};
+
+enum {
+	// viewport centre then nudged off neighbours
+	CANVAS_PLACE_CENTER = 0,
+	// auto or auto-focused - next to the focused window
+	CANVAS_PLACE_FOCUSED = 1,
+	// auto-recent - next to the window you were last working in
+	CANVAS_PLACE_RECENT = 2,
+	// auto-compact - wherever the cluster grows least
+	CANVAS_PLACE_COMPACT = 3,
+};
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <wlr/types/wlr_switch.h>
@@ -428,6 +471,32 @@ typedef struct {
 	/* mouse */
 	int32_t mouse_natural_scrolling;
 	uint32_t mouse_accel_profile;
+	char canvas_shader[1024];
+	int32_t canvas_placement;
+	int32_t canvas_follow_focus;
+	int32_t canvas_follow_focus_delay;
+	double canvas_zoom_step;
+	// snap preview and select band boxes - styled like a window
+	canvas_box_style canvas_drop, canvas_select;
+	// clusters and what acts on them
+	double canvas_cluster_distance; // canvas_cluster_max_distance
+	bool canvas_cluster_snap;		// snap - only windows at the tiling gap
+	int32_t canvas_cluster_min_size;
+	int32_t canvas_cascade_scope;  // CANVAS_SCOPE_*
+	int32_t canvas_cascade_anchor; // CANVAS_ANCHOR_*
+	int32_t canvas_overview_mode;  // CANVAS_OVERVIEW_*
+	double canvas_overview_compression;
+	double canvas_overview_spacing;
+	double canvas_overview_margin;
+	// multi select
+	int32_t canvas_select_enabled;
+	int32_t canvas_select_mode; // CANVAS_SELECT_*
+	int32_t canvas_select_clear_on_click;
+	float canvas_select_window_color[4];
+	bool canvas_select_window_color_set;
+	int32_t canvas_snap_no_overlap;
+	int32_t canvas_resize_snap; // CANVAS_RESIZE_SNAP_*
+	int32_t canvas_precompute;
 	double mouse_accel_speed;
 	double axis_scroll_factor;
 	/* Mouse-specific parameters. */
@@ -492,7 +561,15 @@ typedef struct {
 	uint32_t special_gappiv;
 	uint32_t special_gappoh;
 	uint32_t special_gappov;
-	uint32_t borderpx;
+	uint32_t borderpx; // whole frame border, outer + gap + inner ring
+	// double border: borderpx is set from these in override_config()
+	uint32_t border_outer_px;  // the borderpx key, the outer ring
+	uint32_t inner_borderpx;   // inner ring, 0 is a single border
+	uint32_t inner_border_gap; // transparent space between the rings
+	float inner_bordercolor[4];
+	bool inner_bordercolor_set; // unset follows the outer ring's color
+	float inner_focuscolor[4];
+	bool inner_focuscolor_set;
 	uint32_t group_bar_height;
 	uint32_t tab_bar_height;
 	uint32_t title_message_bar_height;

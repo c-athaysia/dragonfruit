@@ -3,16 +3,6 @@ title: FAQ
 description: Frequently asked questions and troubleshooting.
 ---
 
-### How do I arrange tiled windows with my mouse?
-
-You can enable the `drag_tile_to_tile` option in your config. This allows you to drag a tiled window onto another to swap them.
-
-```ini
-drag_tile_to_tile=1
-```
-
----
-
 ### Why is my background blurry or why does blur look wrong?
 
 Blur applies to the transparent areas of windows. To disable it entirely, set `blur=0`.
@@ -65,8 +55,8 @@ Then force it for your specific game:
 window_rule=force_tearing:1,title:Counter-Strike 2
 ```
 
-> **Warning:** Some graphics cards require setting `env=WLR_DRM_NO_ATOMIC,1` in config before mango starts for tearing to work. 
-> See [Monitors — Tearing](/docs/configuration/monitors#tearing-game-mode) for details.
+> **Warning:** Some graphics cards require setting `env=WLR_DRM_NO_ATOMIC,1` in config before Dragonfruit starts for tearing to work. 
+> See [Monitors — Tearing](configuration/monitors.md#tearing-game-mode) for details.
 
 ---
 
@@ -80,7 +70,7 @@ Add a window rule to force the cursor to stay inside the game window while it is
 window_rule=confine_pointer:1,app_id:steam_app_526870
 ```
 
-Use `app_id:` or `title:` to match your game — see [Window Rules](/docs/window-management/rules) for the available matching options.
+Use `app_id:` or `title:` to match your game — see [Window Rules](window-management/rules.md) for the available matching options.
 
 `confine_pointer=1` keeps the cursor 5px inside the window's surface whenever that window is the focused, visible window. The confinement is released as soon as the window loses focus, gets hidden, minimized, or moved to a hidden tag. It does not rely on the pointer constraints protocol.
 
@@ -94,7 +84,7 @@ Some games (Proton/Wine titles) open a short-lived helper window (a splash/loadi
 window_rule=confine_pointer:1,is_fullscreen:1,app_id:steam_app_526870
 ```
 
-matches **every** window of that app, including that helper window, so mango forces it to fullscreen as well. The helper window then gets `_NET_WM_STATE_FULLSCREEN` and a resize to the whole monitor, and when the real game window maps mango's "a new tiled window kicks the fullscreen window out of fullscreen" logic un-fullscreens and re-tiles it again. Wine ties its mouse capture and cursor visibility to those window states, so after this churn the game ends up with a broken capture state: the cursor is not hidden, the pointer lock is created and dropped repeatedly, and the game's own cursor and the compositor cursor disagree (e.g. the menu cursor is not where the game thinks it is).
+matches **every** window of that app, including that helper window, so Dragonfruit forces it to fullscreen as well. The helper window then gets `_NET_WM_STATE_FULLSCREEN` and a resize to the whole monitor, and when the real game window maps mango's "a new tiled window kicks the fullscreen window out of fullscreen" logic un-fullscreens and re-tiles it again. Wine ties its mouse capture and cursor visibility to those window states, so after this churn the game ends up with a broken capture state: the cursor is not hidden, the pointer lock is created and dropped repeatedly, and the game's own cursor and the compositor cursor disagree (e.g. the menu cursor is not where the game thinks it is).
 
 Restrict `is_fullscreen` to the real game window with `title:` (the helper window has no title):
 

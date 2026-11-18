@@ -23,10 +23,6 @@ description: Advanced settings for XWayland, focus behavior, and system integrat
 | `warp_cursor` | `1` | Warp the cursor to the center of the window when focus changes via keyboard. |
 | `cursor_hide_timeout` | `0` | Hide the cursor after `N` seconds of inactivity (`0` to disable). |
 | `cursor_hide_on_keypress` | `0` | Hide the cursor on keypress. |
-| `drag_tile_to_tile` | `0` | Allow dragging a tiled window onto another to swap their positions. |
-| `drag_tile_small` | `1` | Allow dragging a tiled window temporarily to small size.|
-| `drag_corner` | `3` | Corner for drag-to-tile detection (0: none, 1–3: corners, 4: auto-detect). |
-| `drag_warp_cursor` | `1` | Warp cursor when dragging windows to tile. |
 | `axis_bind_apply_timeout` | `100` | Timeout (ms) for detecting consecutive scroll events for axis bindings. |
 | `disable_middle_paste` | `0` | Disable middle-click paste by turning off the whole primary selection. Only affects Wayland apps; X11 apps are unaffected. Restart apps after re-enabling. |
 
@@ -62,7 +58,7 @@ description: Advanced settings for XWayland, focus behavior, and system integrat
 
 ## Config errors
 
-When the config file contains errors, mango shows a `mangonag` bar at the top of
+When the config file contains errors, Dragonfruit shows a `mangonag` bar at the top of
 the focused output.
 
 - **Close** dismisses the bar.

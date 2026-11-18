@@ -107,6 +107,10 @@ struct MangoServer {
 	KeyboardGroup *keyboard_group;
 	struct wlr_keyboard *last_active_keyboard; /* last keyboard to emit a key;
 												  used to query layout */
+	// xkb keycode of the key bind being dispatched on a press or repeat
+	// 0 any other time like dfmsg or mouse binds
+	// canvas_pan uses it to know when the hold ends
+	uint32_t binding_press_keycode;
 	struct wl_list input_devices;
 	struct wl_list seat_devices;
 	struct wl_list standalone_keyboards; /* standalone keyboards list */

@@ -1,40 +1,40 @@
 ---
 title: Basic Configuration
-description: Learn how to configure mangowm files, environment variables, and autostart scripts.
+description: Learn how to configure Dragonfruit files, environment variables, and autostart scripts.
 ---
 
 ## Configuration File
 
-mangowm uses a simple configuration file format. By default, it looks for a configuration file in `~/.config/mango/`.
+Dragonfruit uses a simple configuration file format. By default, it looks for a configuration file in `~/.config/dragonfruit/`.
 
 1. **Locate Default Config**
 
-   A fallback configuration is provided at `/etc/mango/config.conf`. You can use this as a reference.
+   A fallback configuration is provided at `/etc/dragonfruit/config.conf`. You can use this as a reference.
 
 2. **Create User Config**
 
    Copy the default config to your local config directory to start customizing.
 
    ```bash
-   mkdir -p ~/.config/mango
-   cp /etc/mango/config.conf ~/.config/mango/config.conf
+   mkdir -p ~/.config/dragonfruit
+   cp /etc/dragonfruit/config.conf ~/.config/dragonfruit/config.conf
    ```
 
 3. **Launch with Custom Config (Optional)**
 
-   If you prefer to keep your config elsewhere, you can launch mango with the `-c` flag.
+   If you prefer to keep your config elsewhere, you can launch Dragonfruit with the `-c` flag.
 
    ```bash
-   mango -c /path/to/your_config.conf
+   dragonfruit -c /path/to/your_config.conf
    ```
 
 ### TOML Format
 
-mangowm also reads TOML config files. When looking for a user config,
-`~/.config/mango/config.conf` is preferred, then `~/.config/mango/config.toml`
-(likewise under `/etc/mango/`).
+Dragonfruit also reads TOML config files. When looking for a user config,
+`~/.config/dragonfruit/config.conf` is preferred, then `~/.config/dragonfruit/config.toml`
+(likewise under `/etc/dragonfruit/`).
 
-See [TOML Conversion](/docs/configuration/toml) for the syntax and how to convert
+See [TOML Conversion](toml.md) for the syntax and how to convert
 an existing conf file.
 
 ### Sub-Configuration
@@ -43,21 +43,21 @@ To keep your configuration organized, you can split it into multiple files and i
 
 ```ini
 # Import keybindings from a separate file
-source=~/.config/mango/bind.conf
+source=~/.config/dragonfruit/bind.conf
 
 # Relative paths work too
 source=./theme.conf
 
 # Optional: ignore if file doesn't exist (useful for shared configs)
-source_optional=~/.config/mango/optional.conf
+source_optional=~/.config/dragonfruit/optional.conf
 ```
 
 ### Validate Configuration
 
-You can check your configuration for errors without starting mangowm:
+You can check your configuration for errors without starting Dragonfruit:
 
 ```bash
-mango -c /path/to/config.conf -p
+dragonfruit -c /path/to/config.conf -p
 ```
 
 Use with `source_optional` for shared configs across different setups.
@@ -104,16 +104,16 @@ before the `source` line).
 > ```
 >
 > Defining a variable with the same name as a shell variable you use in a
-> `spawn_shell` command will cause mango to expand it first. Prefer distinctive
+> `spawn_shell` command will cause Dragonfruit to expand it first. Prefer distinctive
 > names to avoid surprises.
 
 ## Autostart
 
-mangowm can automatically run commands or scripts upon startup. There are two modes for execution:
+Dragonfruit can automatically run commands or scripts upon startup. There are two modes for execution:
 
 | Command | Behavior | Usage Case |
 | :--- | :--- | :--- |
-| `exec_once` | Runs **only once** when mangowm starts. | Status bars, Wallpapers, Notification daemons |
+| `exec_once` | Runs **only once** when Dragonfruit starts. | Status bars, Wallpapers, Notification daemons |
 | `exec` | Runs **every time** the config is reloaded. | Scripts that need to refresh settings |
 
 ### Example Setup
@@ -123,8 +123,8 @@ mangowm can automatically run commands or scripts upon startup. There are two mo
 exec_once=waybar
 
 # Set wallpaper
-exec_once=swaybg -i ~/.config/mango/wallpaper/room.png
+exec_once=swaybg -i ~/.config/dragonfruit/wallpaper/room.png
 
 # Reload a custom script on config change
-exec=bash ~/.config/mango/reload-settings.sh
+exec=bash ~/.config/dragonfruit/reload-settings.sh
 ```

@@ -2,6 +2,7 @@
 #include "mango/animation/client.h"
 #include "mango/common/log.h"
 #include "mango/common/server.h"
+#include "mango/layout/canvas.h"
 #include "mango/common/util.h"
 #include "mango/config/parse.h"
 #include "mango/draw/title-message-bar.h"
@@ -320,6 +321,19 @@ int32_t focus_window_or_workspace(const Arg *arg) {
 }
 
 void client_group_join(Client *need_join_client, Client *need_replace_client) {
+	// groups are a tiling holdover, on the canvas they jumped between member
+	// spots and shrank windows by the bar height every focus swap. every join
+	// (groupjoin and dropping on a bar) lands here so this is the one off
+	// switch, the dispatchers and group_bar_* keys still parse
+	static bool told;
+	if (!told) {
+		told = true;
+		mango_error(true, WLR_INFO,
+					"groupjoin: window groups are disabled -- dragonfruit only "
+					"has the canvas. Further attempts are not logged.");
+	}
+	return;
+
 	Monitor *oldmon = NULL;
 
 	if (!need_join_client || !need_join_client->mon)
@@ -755,6 +769,10 @@ int32_t move_resize(const Arg *arg) {
 				  NULL, NULL);
 	if (!c && bar && !bar->is_tab)
 		c = bar->node_data;
+	// on empty canvas a move bind draws the select band
+	if (!c && arg->ui == CurMove &&
+		canvas_select_begin(server.cursor->x, server.cursor->y))
+		return 0;
 	pointer_begin_move_resize(c, arg->ui, server.cursor->x, server.cursor->y,
 							  0);
 	return 0;
@@ -942,22 +960,26 @@ int32_t restore_minimized(const Arg *arg) {
 	return 0;
 }
 
-int32_t set_layout(const Arg *arg) {
-	int32_t jk;
-	if (!server.selected_monitor)
-		return 0;
+// layout switching is off
+// canvas is the layout not one of several and everything assumes it - camera
+// zoom overview placement snapping switching to tile or scroller broke all of
+// that the dispatches still parse so a stock mango config loads - they just do
+// nothing making the parser reject them would break configs for nothing tagrule
+// layout_name is inert for the same reason - see tag_rule_apply_to_slot
+void layout_change_refused(const char *what) {
+	static bool told;
+	if (told)
+		return;
+	told = true;
+	mango_error(true, WLR_INFO,
+				"%s: layout switching is disabled -- dragonfruit only has the "
+				"canvas. Further attempts are not logged.",
+				what);
+}
 
-	for (jk = 0; jk < LENGTH(layouts); jk++) {
-		if (strcmp(layouts[jk].name, arg->v) == 0) {
-			server.selected_monitor->pertag
-				->ltidxs[get_mon_curtag(server.selected_monitor)] =
-				&layouts[jk];
-			clear_fullscreen_and_maximized_state(server.selected_monitor);
-			arrange(server.selected_monitor, false, false);
-			printstatus(IPC_WATCH_ARRANGGE);
-			return 0;
-		}
-	}
+int32_t set_layout(const Arg *arg) {
+	(void)arg;
+	layout_change_refused("set_layout");
 	return 0;
 }
 
@@ -1434,63 +1456,8 @@ int32_t switch_keyboard_layout(const Arg *arg) {
 }
 
 int32_t switch_layout(const Arg *arg) {
-
-	int32_t jk, ji;
-	char *target_layout_name = NULL;
-	uint32_t len;
-
-	if (!server.selected_monitor)
-		return 0;
-
-	uint32_t tag = get_mon_curtag(server.selected_monitor);
-
-	if (config.circle_layout_count != 0) {
-		for (jk = 0; jk < config.circle_layout_count; jk++) {
-
-			len = MANGO_MAX(
-				strlen(config.circle_layout[jk]),
-				strlen(server.selected_monitor->pertag->ltidxs[tag]->name));
-
-			if (strncmp(config.circle_layout[jk],
-						server.selected_monitor->pertag->ltidxs[tag]->name,
-						len) == 0) {
-				target_layout_name = jk == config.circle_layout_count - 1
-										 ? config.circle_layout[0]
-										 : config.circle_layout[jk + 1];
-				break;
-			}
-		}
-
-		if (!target_layout_name) {
-			target_layout_name = config.circle_layout[0];
-		}
-
-		for (ji = 0; ji < LENGTH(layouts); ji++) {
-			len =
-				MANGO_MAX(strlen(layouts[ji].name), strlen(target_layout_name));
-			if (strncmp(layouts[ji].name, target_layout_name, len) == 0) {
-				server.selected_monitor->pertag->ltidxs[tag] = &layouts[ji];
-
-				break;
-			}
-		}
-		clear_fullscreen_and_maximized_state(server.selected_monitor);
-		arrange(server.selected_monitor, false, false);
-		printstatus(IPC_WATCH_ARRANGGE);
-		return 0;
-	}
-
-	for (jk = 0; jk < LENGTH(layouts); jk++) {
-		if (strcmp(layouts[jk].name,
-				   server.selected_monitor->pertag->ltidxs[tag]->name) == 0) {
-			server.selected_monitor->pertag->ltidxs[tag] =
-				jk == LENGTH(layouts) - 1 ? &layouts[0] : &layouts[jk + 1];
-			clear_fullscreen_and_maximized_state(server.selected_monitor);
-			arrange(server.selected_monitor, false, false);
-			printstatus(IPC_WATCH_ARRANGGE);
-			return 0;
-		}
-	}
+	(void)arg;
+	layout_change_refused("switch_layout");
 	return 0;
 }
 
@@ -2484,6 +2451,10 @@ int32_t leave_overview(const Arg *arg) {
 int32_t toggle_jump(const Arg *arg) {
 	if (!server.selected_monitor)
 		return 0;
+
+	// on the canvas the letters go on the canvas overview not mangos grid
+	if (canvas_active(server.selected_monitor))
+		return canvas_jump(arg);
 
 	if (!server.selected_monitor->isoverview) {
 		begin_jump_mode(server.selected_monitor);

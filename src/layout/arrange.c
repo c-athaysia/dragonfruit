@@ -1376,6 +1376,10 @@ Layout overviewlayout = {"󰃇", overview, "overview"};
 Layout layouts[] = {
 	// At least two are required; fewer than two cannot be removed.
 	/* symbol     arrange function   name */
+	// canvas goes first - layouts[0] is every tags default
+	// layout switching is off (set_layout in bind.c) so thats the only layout a
+	// tag gets
+	{"CV", canvas, "canvas", CANVAS},				 // the canvas
 	{"T", tile, "tile", TILE},						 // Tiled layout
 	{"S", scroller, "scroller", SCROLLER},			 // Scroll layout
 	{"G", grid, "grid", GRID},						 // Grid layout

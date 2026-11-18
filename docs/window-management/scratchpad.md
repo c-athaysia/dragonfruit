@@ -3,7 +3,7 @@ title: Scratchpad
 description: Manage hidden "scratchpad" windows for quick access.
 ---
 
-mangowm supports two types of scratchpads: the standard pool (Sway-like) and named scratchpads.
+Dragonfruit supports two types of scratchpads: the standard pool (Sway-like) and named scratchpads.
 
 ## Standard Scratchpad
 
@@ -26,7 +26,7 @@ bind=SUPER+SHIFT,i,restore_minimized
 
 ## Named Scratchpad
 
-Named scratchpads are bound to specific keys and applications. When triggered, mangowm will either launch the app (if not running) or toggle its visibility.
+Named scratchpads are bound to specific keys and applications. When triggered, Dragonfruit will either launch the app (if not running) or toggle its visibility.
 
 **1. Define the Window Rule**
 
@@ -87,7 +87,7 @@ window_rule=is_named_scratchpad:1,app_id:st-yazi
 
 ## Special Workspace (Tag 0)
 
-The special workspace (Tag 0) provides an overlay workspace of windows that can be summoned anywhere with full layout support (Scroller, Master/Stack, Dwindle, etc.). When Tag 0 is active, windows from the underlying workspace remain visible in the background, and all windows on the special workspace are displayed above them.
+The special workspace (Tag 0) provides an overlay workspace of windows that can be summoned anywhere on the canvas. When Tag 0 is active, windows from the underlying workspace remain visible in the background, and all windows on the special workspace are displayed above them.
 
 ### Keybindings
 

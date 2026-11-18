@@ -76,6 +76,7 @@ cJSON *tags_mask_to_array(uint32_t tag_mask);
 cJSON *build_tags_json(Monitor *m);
 cJSON *monitor_active_tags(Monitor *m);
 cJSON *build_client_json(Client *c);
+cJSON *build_canvas_json(Monitor *m);
 cJSON *build_monitor_json(Monitor *m);
 cJSON *build_all_tags_entry(Monitor *m);
 cJSON *build_all_tags_response(void);

@@ -166,7 +166,11 @@ static bool resolve_config_path(const char *file_path, char *full_path,
 							"HOME environment variable not set.\n");
 				return false;
 			}
-			snprintf(full_path, size, "%s/.config/mango/%s", home, rel);
+			// same two name search as the main config so a sourced file is
+			// found wherever the config is
+			snprintf(full_path, size, "%s/.config/dragonfruit/%s", home, rel);
+			if (access(full_path, F_OK) != 0)
+				snprintf(full_path, size, "%s/.config/mango/%s", home, rel);
 		}
 	} else if (file_path[0] == '~' &&
 			   (file_path[1] == '/' || file_path[1] == '\0')) {
@@ -399,20 +403,19 @@ bool parse_config(void) {
 			config_error_store_end();
 			return false;
 		}
-		snprintf(filename, sizeof(filename), "%s/.config/mango/config.conf",
-				 homedir);
-		if (access(filename, F_OK) != 0) {
-			snprintf(filename, sizeof(filename), "%s/.config/mango/config.toml",
-					 homedir);
-		}
-
-		if (access(filename, F_OK) != 0) {
-			snprintf(filename, sizeof(filename), "%s/mango/config.conf",
-					 SYSCONFDIR);
-			if (access(filename, F_OK) != 0) {
-				snprintf(filename, sizeof(filename), "%s/mango/config.toml",
-						 SYSCONFDIR);
-			}
+		// first hit wins - mango paths stay on purpose so an existing mango
+		// config works as is
+		const char *fmts[] = {
+			"%s/.config/dragonfruit/config.conf", "%s/.config/dragonfruit/config.toml",
+			"%s/.config/mango/config.conf",		  "%s/.config/mango/config.toml",
+			"%s/dragonfruit/config.conf",		  "%s/dragonfruit/config.toml",
+			"%s/mango/config.conf",				  "%s/mango/config.toml",
+		};
+		for (size_t i = 0; i < LENGTH(fmts); i++) {
+			snprintf(filename, sizeof(filename), fmts[i],
+					 i < 4 ? homedir : SYSCONFDIR);
+			if (access(filename, F_OK) == 0)
+				break;
 		}
 	}
 

@@ -3,12 +3,13 @@ title: Overview
 description: Configure overview, jump mode, overcircle, and the window switcher.
 ---
 
-Mango has four related ways to inspect or switch windows: the standard overview,
+Besides the canvas overview, Dragonfruit has four related ways to inspect or switch windows: the standard overview,
 jump mode, overcircle, and the switcher. They share some appearance settings,
 but each mode has its own entry command and interaction model.
 
 | Mode | Layout | Primary command |
 | :--- | :--- | :--- |
+| Canvas overview | The canvas itself, distances compressed logarithmically. See [Canvas](canvas.md) | `canvas_overview`, `canvas_jump` |
 | Overview | Packed cards in the normal overview grid | `toggleoverview` |
 | Jump mode | Overview grid with one-key jump hints | `togglejump` |
 | Overcircle | Focused card in the center with other windows on both sides | `overcircle` |
@@ -16,7 +17,7 @@ but each mode has its own entry command and interaction model.
 
 The keybindings below are examples; replace the shortcuts with ones that are
 free in your configuration. For the complete dispatcher reference, see
-[Keybindings](/docs/bindings/keys).
+[Keybindings](../bindings/keys.md).
 
 ## Overview
 
@@ -75,7 +76,9 @@ hotarea_disable_on_fullscreen=1
 
 ## Jump Mode
 
-Jump mode displays the standard overview grid and places a character hint on
+In Dragonfruit, `togglejump` opens the canvas overview (`canvas_overview`) with the hints on it, the same as `canvas_jump`. You can still click a window instead of pressing its hint.
+
+In Mango, jump mode displays the standard overview grid and places a character hint on
 each visible window. Press a hint to focus that window and leave the overview.
 Press `Escape` to leave without selecting a window.
 
@@ -110,7 +113,7 @@ jump_labels=HJKLASDFGQWERTYUIOPZXCVBNM
 
 Hint colors, border, padding, corner radius, and font use the
 `jump_label_decorate_*` settings. See
-[Overview Jump Mode](/docs/visuals/theming#overview-jump-mode) for the complete
+[Overview Jump Mode](../visuals/theming.md#overview-jump-mode) for the complete
 list.
 
 ## Overcircle
@@ -165,7 +168,7 @@ title_message_bar_gap=20
 
 The title message bar shows the window title on the first line and its app id
 on the second. Its decoration is shared with the switcher; see
-[Title Message Bar](/docs/visuals/theming#title-message-bar).
+[Title Message Bar](../visuals/theming.md#title-message-bar).
 
 ## Switcher
 

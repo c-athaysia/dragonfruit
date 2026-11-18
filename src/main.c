@@ -5,6 +5,7 @@
 #include "mango/common/input-event-codes.h"
 #include "mango/common/log.h"
 #include "mango/common/server.h"
+#include "mango/draw/shader_bg.h"
 #include "mango/common/util.h"
 #include "mango/config/error_nag.h"
 #include "mango/config/parse.h"
@@ -285,7 +286,7 @@ static char *env_vars[] = {
 	"XDG_SESSION_TYPE",
 	"XCURSOR_THEME",
 	"XCURSOR_SIZE",
-	"MANGO_INSTANCE_SIGNATURE",
+	"DRAGONFRUIT_INSTANCE_SIGNATURE",
 	NULL,
 };
 
@@ -320,7 +321,7 @@ void set_activation_env() {
 	const char *action = "import-environment";
 	char *cmd2 = string_printf("systemctl --user %s %s; "
 							   "systemctl --user --no-block start "
-							   "mango-session.target",
+							   "dragonfruit-session.target",
 							   action, env_keys);
 	if (!cmd2) {
 		mango_error(true, WLR_ERROR, "Failed to allocate command string");
@@ -462,10 +463,13 @@ void run(char *startup_cmd, int readiness_fd) {
 }
 
 void setup(void) {
-	setenv("XDG_CURRENT_DESKTOP", "mango", 1);
+	setenv("XDG_CURRENT_DESKTOP", "Dragonfruit", 1);
 	setenv("_JAVA_AWT_WM_NONREPARENTING", "1", 1);
 
 	parse_config();
+	// reapply_rootbg loads this but only on config reload so startup has to do
+	// it here
+	shader_bg_load(config.canvas_shader);
 	if (server.cli_debug_log) {
 		config.log_level = WLR_DEBUG;
 	}
@@ -948,7 +952,7 @@ int32_t main(int32_t argc, char *argv[]) {
 		} else if (c == 'd') {
 			server.cli_debug_log = true;
 		} else if (c == 'v') {
-			printf("mango " VERSION "\n");
+			printf("dragonfruit " VERSION "\n");
 			return EXIT_SUCCESS;
 		} else if (c == 'c') {
 			snprintf(server.cli_config_path, sizeof(server.cli_config_path),
@@ -982,10 +986,10 @@ int32_t main(int32_t argc, char *argv[]) {
 	cleanup();
 	return EXIT_SUCCESS;
 usage:
-	printf("Usage: mango [OPTIONS]\n"
+	printf("Usage: dragonfruit [OPTIONS]\n"
 		   "\n"
 		   "Options:\n"
-		   "  -v             Show mango version\n"
+		   "  -v             Show dragonfruit version\n"
 		   "  -d             Enable debug log\n"
 		   "  -c <file>      Use custom configuration file\n"
 		   "  -s <command>   Execute startup command\n"
