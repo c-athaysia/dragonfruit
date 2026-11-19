@@ -187,19 +187,19 @@ static bool swipe_func_drivable(FuncType func, const Arg *arg, uint32_t motion,
 	if (func == toggle_overview) {
 		if (motion != SWIPE_UP && motion != SWIPE_DOWN)
 			return false;
-		return m->isoverview ? motion == SWIPE_DOWN : motion == SWIPE_UP;
+		return m->canvas_overview ? motion == SWIPE_DOWN : motion == SWIPE_UP;
 	}
 
 	if (func == enter_overview) {
 		if (motion != SWIPE_UP && motion != SWIPE_DOWN)
 			return false;
-		return !m->isoverview;
+		return !m->canvas_overview;
 	}
 
 	if (func == leave_overview) {
 		if (motion != SWIPE_UP && motion != SWIPE_DOWN)
 			return false;
-		return m->isoverview;
+		return m->canvas_overview;
 	}
 
 	return false;
@@ -231,8 +231,7 @@ static bool swipe_has_running_transition(Monitor *m) {
 		if (c->mon != m || !c->animation.running || !c->need_output_flush)
 			continue;
 		if (c->animation.action == TAG || c->animation.action == MOVE ||
-			c->animation.action == OVERVIEW || c->animation.tagining ||
-			c->animation.tagouting)
+			c->animation.tagining || c->animation.tagouting)
 			return true;
 	}
 	return false;
@@ -259,8 +258,7 @@ static void swipe_drive_log_state(Monitor *m, const char *why, bool sel_changed,
 		}
 		if (c->animation.running && c->need_output_flush) {
 			running++;
-			if (c->animation.action == TAG || c->animation.action == MOVE ||
-				c->animation.action == OVERVIEW)
+			if (c->animation.action == TAG || c->animation.action == MOVE)
 				geometry++;
 		}
 	}
@@ -293,8 +291,7 @@ static void swipe_drive_apply(Monitor *m, double p) {
 		if (c->mon != m || !c->animation.running || !c->need_output_flush)
 			continue;
 		if (c->animation.action != TAG && c->animation.action != MOVE &&
-			c->animation.action != OVERVIEW && !c->animation.tagining &&
-			!c->animation.tagouting)
+			!c->animation.tagining && !c->animation.tagouting)
 			continue;
 		client_animation_set_progress(c, p);
 	}
@@ -776,8 +773,7 @@ static void swipe_drive_end(void) {
 					!c->need_output_flush)
 					continue;
 				if (c->animation.action != TAG && c->animation.action != MOVE &&
-					c->animation.action != OVERVIEW && !c->animation.tagining &&
-					!c->animation.tagouting)
+					!c->animation.tagining && !c->animation.tagouting)
 					continue;
 
 				client_animation_resume(c, 1.0 - p);

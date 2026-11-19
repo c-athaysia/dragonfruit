@@ -1,16 +1,15 @@
 #include "mango/animation/client.h"
 #include "mango/animation/common.h"
 #include "mango/common/server.h"
-#include "mango/layout/canvas.h"
 #include "mango/common/util.h"
 #include "mango/draw/title-message-bar.h"
+#include "mango/layout/canvas.h"
 #include "mango/layout/dwindle.h"
 #include "mango/layout/layout.h"
 #include "mango/manage/client.h"
 #include "mango/manage/misc.h"
 #include "mango/manage/monitor.h"
 #include "mango/manage/tab.h"
-#include "mango/overview/overview.h"
 #include <math.h>
 #include <scenefx/types/wlr_scene.h>
 #include <stdint.h>
@@ -53,7 +52,7 @@ static bool client_no_radius_active(const Client *c) {
 		(config.no_radius_when_single && c->mon->visible_tiling_clients == 1))
 		return true;
 
-	return config.monocle_no_radius && ISFAKETILED(c) && !c->mon->isoverview &&
+	return config.monocle_no_radius && ISFAKETILED(c) &&
 		   is_monocle_layout(c->mon);
 }
 
@@ -159,22 +158,6 @@ int32_t is_special_animation_rule(Client *c) {
 	} else {
 		return UNDIR;
 	}
-}
-
-void set_overview_enter_animation(Client *c) {
-	if (client_gesture_driven(c)) {
-		struct wlr_box start = c->overview_backup_geom;
-		if (start.width <= 0 || start.height <= 0)
-			start = c->animation.current;
-		c->animainit_geom = start;
-		return;
-	}
-
-	struct wlr_box geo = c->geom;
-	c->animainit_geom.width = geo.width * 1.2;
-	c->animainit_geom.height = geo.height * 1.2;
-	c->animainit_geom.x = geo.x + (geo.width - c->animainit_geom.width) / 2;
-	c->animainit_geom.y = geo.y + (geo.height - c->animainit_geom.height) / 2;
 }
 
 void set_client_open_animation(Client *c, struct wlr_box geo) {
@@ -360,12 +343,6 @@ void buffer_set_effect(Client *c, BufferData data) {
 
 	if (config.blur && !c->no_blur)
 		wlr_scene_blur_set_corner_radii(c->blur, data.corner_location);
-
-	/* Overview cards get rounded corners directly. */
-	if (c->ov_card_tree) {
-		overview_card_set_corner_radii(c, data.corner_location);
-		return;
-	}
 
 	wlr_scene_node_for_each_buffer(&c->scene_surface->node,
 								   scene_buffer_apply_effect, &data);
@@ -1163,39 +1140,6 @@ void client_set_clip(Client *c, float factor) {
 	if (c->iskilling || !client_surface(c)->mapped)
 		return;
 
-	/*
-	 * Overview card mode: content is shown by the independent card tree; update
-	 * the card position/scale here and redraw the decoration nodes to match the
-	 * card geometry.
-	 */
-	if (c->ov_card_tree) {
-		struct ivec2 offsets = compute_edge_offsets(c);
-
-		struct wlr_box clip_box;
-		struct ivec2 surface_clip_offset;
-		int32_t card_w, card_h;
-		client_actual_size(c, &card_w, &card_h);
-		clip_box =
-			(struct wlr_box){.x = 0, .y = 0, .width = card_w, .height = card_h};
-		surface_clip_offset = clip_to_hide(c, &clip_box, offsets);
-
-		/* Decorations are drawn against the card geometry. */
-		client_draw_border(c, offsets);
-		client_draw_shadow(c, offsets);
-		client_draw_group_bar(c, offsets);
-		client_draw_tabbar(c, offsets);
-		client_draw_blur(c, surface_clip_offset);
-		client_draw_shield(c, surface_clip_offset);
-		client_draw_dim(c, surface_clip_offset);
-
-		overview_layout_card(c);
-		if (config.title_message_bar_height > 0 && is_overcircle_mode(c->mon) &&
-			c == c->mon->sel)
-			title_message_bar_update_geometry(c->mon);
-		overview_card_set_corner_radii(c, set_client_corner_location(c));
-		return;
-	}
-
 	struct ivec2 offsets = compute_edge_offsets(c);
 
 	struct wlr_box clip_box;
@@ -1206,7 +1150,7 @@ void client_set_clip(Client *c, float factor) {
 	struct fx_corner_radii current_corner_location =
 		set_client_corner_location(c);
 
-	if (!client_animations_enabled(c) && !c->overview_scene_surface) {
+	if (!client_animations_enabled(c)) {
 		c->animation.running = false;
 		c->animation.tagining = false;
 		c->animation.tagouting = false;
@@ -1240,7 +1184,7 @@ void client_set_clip(Client *c, float factor) {
 		 */
 		if (client_is_x11(c))
 			client_update_xwayland_clip(c, &clip_box);
-		else if (!c->overview_scene_surface)
+		else
 			client_set_surface_clip(c, &clip_box);
 
 		buffer_set_effect(c, (BufferData){1.0f, 1.0f, clip_box.width,
@@ -1296,7 +1240,7 @@ void client_set_clip(Client *c, float factor) {
 	 * source_box; wlr_scene clip would scale the buffer by its physical size
 	 * and cannot be used for X11.
 	 */
-	if (!c->overview_scene_surface && !client_is_x11(c))
+	if (!client_is_x11(c))
 		client_set_surface_clip(c, &clip_box);
 
 	int32_t actual_surface_width =
@@ -1312,7 +1256,7 @@ void client_set_clip(Client *c, float factor) {
 	buffer_data.height = clip_box.height;
 	buffer_data.corner_location = current_corner_location;
 
-	if (factor == 1.0 && !c->overview_scene_surface) {
+	if (factor == 1.0) {
 		buffer_data.width_scale = 1.0;
 		buffer_data.height_scale = 1.0;
 	} else {
@@ -1355,8 +1299,10 @@ void fadeout_client_animation_next_tick(Client *c) {
 	// move it by how far the camera went since capture
 	if (canvas_on_plane(c) && c->mon && canvas_active(c->mon)) {
 		double z = c->mon->zoom > 0.0 ? c->mon->zoom : 1.0;
-		double now_x = (double)c->mon->m.x + (c->canvas_geom.x - c->mon->cam_x) * z;
-		double now_y = (double)c->mon->m.y + (c->canvas_geom.y - c->mon->cam_y) * z;
+		double now_x =
+			(double)c->mon->m.x + (c->canvas_geom.x - c->mon->cam_x) * z;
+		double now_y =
+			(double)c->mon->m.y + (c->canvas_geom.y - c->mon->cam_y) * z;
 		x += (int32_t)lround(now_x - (double)c->geom.x);
 		y += (int32_t)lround(now_y - (double)c->geom.y);
 	}
@@ -1429,7 +1375,6 @@ void client_animation_next_tick(Client *c) {
 		c->animation.action = MOVE;
 		c->animation.tagining = false;
 		c->animation.running = false;
-		c->animation.overining = false;
 
 		if (c->animation.tagouting) {
 			c->animation.tagouting = false;
@@ -1451,8 +1396,7 @@ void client_animation_next_tick(Client *c) {
 			pointer_c && pointer_c == c ? client_surface(pointer_c) : NULL;
 
 		if (surface && server.selected_monitor &&
-			pointer_c == server.selected_monitor->sel &&
-			!server.selected_monitor->isoverview)
+			pointer_c == server.selected_monitor->sel)
 			wlr_seat_pointer_notify_enter(server.seat, surface, sx, sy);
 
 		c->need_output_flush = false;
@@ -1475,35 +1419,18 @@ void init_fadeout_client(Client *c) {
 	fadeout_client->animation_type_open = ANIM_TYPE_UNSET;
 	fadeout_client->animation_type_close = ANIM_TYPE_UNSET;
 
-	// remember where the window was on the canvas before the overview card gets
-	// torn down fadeout ghost has screen coords baked in and canvas never sees
-	// it again no anchor means the ghost sticks to the screen while you pan
-	// overview card is already scaled so it gets no anchor
+	// remember where the window was on the canvas fadeout ghost has screen
+	// coords baked in and canvas never sees it again no anchor means the ghost
+	// sticks to the screen while you pan
 	fadeout_client->canvas_geom = c->canvas_geom;
-	fadeout_client->canvas_placed = c->canvas_placed && !c->ov_card_tree;
+	fadeout_client->canvas_placed = c->canvas_placed;
 
 	c->snapshot_temp_visible = true;
 	client_update_visibility(c);
 	client_set_border_color(c, config.bordercolor);
-	if (c->ov_card_tree) {
-		/*
-		 * Closing in overview: the fadeout snapshot is based on the
-		 * already-scaled card tree. Snapshotting accumulates node coordinates,
-		 * but card tree coordinates are relative to (bw,bw), so a direct
-		 * snapshot would land near the layer origin; temporarily move the card
-		 * tree to the card's absolute screen coordinates before snapshotting.
-		 */
-		int32_t abs_x = c->animation.current.x + (int32_t)c->bw;
-		int32_t abs_y = c->animation.current.y + (int32_t)c->bw;
-		wlr_scene_node_set_position(&c->ov_card_tree->node, abs_x, abs_y);
-		fadeout_client->scene = wlr_scene_tree_snapshot(
-			&c->ov_card_tree->node, server.layers[LyrFadeOut]);
-		overview_destroy_card(c);
-		c->overview_scene_surface = NULL;
-	} else {
-		fadeout_client->scene =
-			wlr_scene_tree_snapshot(&c->scene->node, server.layers[LyrFadeOut]);
-	}
+	fadeout_client->scene =
+		wlr_scene_tree_snapshot(&c->scene->node, server.layers[LyrFadeOut]);
+
 	c->snapshot_temp_visible = false;
 	client_update_visibility(c);
 
@@ -1608,7 +1535,6 @@ void client_animation_resume(Client *c, double remaining) {
 		client_animation_set_progress(c, 1.0);
 		c->animation.action = MOVE;
 		c->animation.tagining = false;
-		c->animation.overining = false;
 		c->animation.running = false;
 		if (c->animation.tagouting) {
 			c->animation.tagouting = false;
@@ -1658,11 +1584,6 @@ void client_set_pending_state(Client *c) {
 	if (!client_animations_enabled(c))
 		c->animation.should_animate = false;
 	else if (c->animation.tagining)
-		c->animation.should_animate = true;
-	else if (c->animation.action == OVERVIEW &&
-			 c->animation.overview_enter_anim_set)
-		/* Overview enter animation: force start after setting the zoom; not
-		 * forced during pre-arrangement to avoid jitter. */
 		c->animation.should_animate = true;
 	else if (c == server.grab_client ||
 			 (!c->is_pending_open_animation &&
@@ -1747,11 +1668,8 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 	if (!c->is_pending_open_animation)
 		c->animation.begin_fade_in = false;
 
-	if (c->animation.overining) {
-		c->animation.action = OVERVIEW;
-		c->animation.duration = config.animation_duration_tag;
-	} else if (c->animation.action == OPEN && !c->animation.tagining &&
-			   !c->animation.tagouting && wlr_box_equal(&c->geom, &c->current))
+	if (c->animation.action == OPEN && !c->animation.tagining &&
+		!c->animation.tagouting && wlr_box_equal(&c->geom, &c->current))
 		; /* keep current action */
 	else if (c->animation.tagouting) {
 		c->animation.duration = config.animation_duration_tag;
@@ -1793,24 +1711,23 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 	// zoom must not resize the client
 	// a configure makes apps relayout at the zoomed size
 	// canvas_scale_buffer does the visual size with dest_size
-	if (!c->mon->isoverview) {
-		// fullscreen or maximized is sized by the monitor not canvas_geom
-		// using canvas_geom would configure the old pre fullscreen size
-		if (canvas_zoomed(c->mon) && !c->isfullscreen && !c->ismaximizescreen) {
-			// configure at canvas size not zoomed size so zoom never relayouts
-			// the app explicit resize still gets through skipping it when
-			// zoomed made edge drags do nothing because arrange overwrote geom
-			int32_t cw = (int32_t)lround(c->canvas_geom.width) -
-						 2 * (int32_t)config.borderpx;
-			int32_t ch = (int32_t)lround(c->canvas_geom.height) -
-						 2 * (int32_t)config.borderpx;
-			if (cw > 0 && ch > 0)
-				c->configure_serial = client_set_size(c, cw, ch,
-														 opts.force_configure);
-		} else {
-			c->configure_serial = client_set_size(c, c->geom.width - 2 * c->bw,
-								c->geom.height - 2 * c->bw, opts.force_configure);
-		}
+	// fullscreen or maximized is sized by the monitor not canvas_geom
+	// using canvas_geom would configure the old pre fullscreen size
+	if (canvas_zoomed(c->mon) && !c->isfullscreen && !c->ismaximizescreen) {
+		// configure at canvas size not zoomed size so zoom never relayouts
+		// the app explicit resize still gets through skipping it when
+		// zoomed made edge drags do nothing because arrange overwrote geom
+		int32_t cw = (int32_t)lround(c->canvas_geom.width) -
+					 2 * (int32_t)config.borderpx;
+		int32_t ch = (int32_t)lround(c->canvas_geom.height) -
+					 2 * (int32_t)config.borderpx;
+		if (cw > 0 && ch > 0)
+			c->configure_serial =
+				client_set_size(c, cw, ch, opts.force_configure);
+	} else {
+		c->configure_serial =
+			client_set_size(c, c->geom.width - 2 * c->bw,
+							c->geom.height - 2 * c->bw, opts.force_configure);
 	}
 
 	if (c->configure_serial != 0)
@@ -1864,21 +1781,6 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 
 	if (c->scratchpad_switching_mon && c->isfloating)
 		c->animainit_geom = c->geom;
-
-	if (!opts.skip_ov_enter_anim && c->mon->isoverview &&
-		c->animation.overining && !c->animation.overview_enter_anim_set) {
-		if (client_gesture_driven(c)) {
-			set_overview_enter_animation(c);
-			c->animation.overining = false;
-			c->animation.overview_enter_anim_set = true;
-		} else {
-			c->animation.overining = false;
-			if (c != c->mon->sel && c->animation.action == OVERVIEW) {
-				c->animation.overview_enter_anim_set = true;
-				set_overview_enter_animation(c);
-			}
-		}
-	}
 
 	client_set_pending_state(c);
 	client_update_border_color(c);

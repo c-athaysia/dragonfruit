@@ -58,10 +58,7 @@ struct Monitor {
 	int32_t special_gappoh;
 	int32_t special_gappov;
 	Pertag *pertag;
-	uint32_t ovbk_current_tagset;
-	uint32_t ovbk_prev_tagset;
 	Client *sel, *prevsel;
-	int32_t isoverview;
 	// canvas camera - cam_x cam_y is the canvas point at the monitor top left
 	// zoom is the camera scale
 	double cam_x, cam_y;
@@ -107,10 +104,6 @@ struct Monitor {
 	bool bg_dirty;
 	int32_t is_jump_mode;
 	int32_t is_in_hotarea;
-	int32_t ov_normal_mode; /* Uses the normal grid layout when entering via the
-							   hot area. */
-	int32_t ov_tab_layout;	/* Uses the centered tab layout when entering via
-							   overcircle. */
 	int32_t only_sleep;
 	bool special_empty_view; // user intentionally opened the empty special view
 	uint32_t visible_clients;
@@ -167,7 +160,6 @@ Monitor *monitor_from_cycle(int32_t dir);
 bool is_scroller_layout(Monitor *m);
 bool is_monocle_layout(Monitor *m);
 bool is_centertile_layout(Monitor *m);
-bool is_overcircle_mode(const Monitor *m);
 void special_update_dim(Monitor *m);
 void special_sync_top_layer(bool special_active);
 uint32_t get_tag_status(uint32_t tag, Monitor *m);

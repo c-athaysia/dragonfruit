@@ -11,23 +11,13 @@ static struct wl_list workspaces;
 void goto_workspace(struct workspace *target) {
 	uint32_t tag;
 	tag = 1 << (target->tag - 1);
-	if (target->tag == 0) {
-		set_overview(&(Arg){0}, true, target->m);
-		return;
-	} else {
-		client_view_on_monitor(&(Arg){.ui = tag}, true, target->m, true);
-	}
+	client_view_on_monitor(&(Arg){.ui = tag}, true, target->m, true);
 }
 
 void toggle_workspace(struct workspace *target) {
 	uint32_t tag;
 	tag = 1 << (target->tag - 1);
-	if (target->tag == 0) {
-		set_overview(&(Arg){0}, false, target->m);
-		return;
-	} else {
-		toggle_view_on_monitor(&(Arg){.ui = tag}, target->m);
-	}
+	toggle_view_on_monitor(&(Arg){.ui = tag}, target->m);
 }
 
 void remove_workspace_by_tag(uint32_t tag, Monitor *m) {
@@ -40,8 +30,6 @@ void remove_workspace_by_tag(uint32_t tag, Monitor *m) {
 	}
 }
 const char *get_name_from_tag(uint32_t tag) {
-	if (tag == 0)
-		return "overview";
 	if (tag <= (uint32_t)config.tag_num)
 		return tags[tag - 1];
 	return NULL;
@@ -86,17 +74,8 @@ void refresh_monitors_workspaces_status(Monitor *m) {
 		return;
 	}
 
-	if (m->isoverview) {
-		add_workspace_by_tag(0, m);
-		for (i = 1; i <= config.tag_num; i++) {
-			remove_workspace_by_tag(i, m);
-		}
-	} else {
-		remove_workspace_by_tag(0, m);
-		for (i = 1; i <= config.tag_num; i++) {
-			add_workspace_by_tag(i, m);
-		}
-	}
+	for (i = 1; i <= config.tag_num; i++)
+		add_workspace_by_tag(i, m);
 
 	mango_ext_workspace_printstatus(m);
 }
@@ -130,7 +109,7 @@ void handle_ext_commit(struct wl_listener *listener, void *data) {
 				}
 			}
 
-			if (!workspace || workspace->m->isoverview) {
+			if (!workspace) {
 				break;
 			}
 
@@ -153,7 +132,7 @@ void handle_ext_commit(struct wl_listener *listener, void *data) {
 				}
 			}
 
-			if (!workspace || workspace->m->isoverview) {
+			if (!workspace) {
 				break;
 			}
 
@@ -194,8 +173,7 @@ void mango_ext_workspace_printstatus(Monitor *m) {
 			}
 
 			uint32_t active_tagset = get_monitor_active_tagset(m);
-			if ((active_tagset & (1 << (w->tag - 1)) & TAGMASK) ||
-				m->isoverview) {
+			if (active_tagset & (1 << (w->tag - 1)) & TAGMASK) {
 				wlr_ext_workspace_handle_v1_set_hidden(w->ext_workspace, false);
 				wlr_ext_workspace_handle_v1_set_active(w->ext_workspace, true);
 			} else {
@@ -211,37 +189,22 @@ void sync_workspaces_to_tag_num(Monitor *m) {
 
 	struct workspace *w, *tmp;
 
-	if (m->isoverview) {
-		bool has_overview = false;
-		wl_list_for_each_safe(w, tmp, &workspaces, link) {
-			if (w->m == m) {
-				if (w->tag == 0) {
-					has_overview = true;
-				} else {
-					destroy_workspace(w);
-				}
+	// Normal state: destroy old tag workspaces beyond tag_num.
+	wl_list_for_each_safe(w, tmp, &workspaces, link) {
+		if (w->m == m && w->tag > config.tag_num)
+			destroy_workspace(w);
+	}
+	// Adds missing tags.
+	for (int32_t i = 1; i <= config.tag_num; i++) {
+		bool exists = false;
+		wl_list_for_each(w, &workspaces, link) {
+			if (w->m == m && w->tag == i) {
+				exists = true;
+				break;
 			}
 		}
-		if (!has_overview)
-			add_workspace_by_tag(0, m);
-	} else {
-		// Normal state: destroy old tag workspaces beyond tag_num.
-		wl_list_for_each_safe(w, tmp, &workspaces, link) {
-			if (w->m == m && w->tag > config.tag_num)
-				destroy_workspace(w);
-		}
-		// Adds missing tags.
-		for (int32_t i = 1; i <= config.tag_num; i++) {
-			bool exists = false;
-			wl_list_for_each(w, &workspaces, link) {
-				if (w->m == m && w->tag == i) {
-					exists = true;
-					break;
-				}
-			}
-			if (!exists)
-				add_workspace_by_tag(i, m);
-		}
+		if (!exists)
+			add_workspace_by_tag(i, m);
 	}
 
 	mango_ext_workspace_printstatus(m);

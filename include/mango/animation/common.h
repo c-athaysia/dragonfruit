@@ -11,7 +11,7 @@
 #define BAKED_POINTS_COUNT 256
 
 /* What is currently being animated / which animation phase is running. */
-enum { NONE, OPEN, MOVE, CLOSE, TAG, FOCUS, OPAFADEIN, OPAFADEOUT, OVERVIEW };
+enum { NONE, OPEN, MOVE, CLOSE, TAG, FOCUS, OPAFADEIN, OPAFADEOUT };
 
 struct dvec2 {
 	double x, y;
@@ -29,8 +29,6 @@ struct mango_animation {
 	bool tagouting;
 	bool begin_fade_in;
 	bool tag_from_rule;
-	bool overining;
-	bool overview_enter_anim_set;
 	uint32_t time_started;
 	uint32_t duration;
 	struct wlr_box initial;

@@ -229,7 +229,6 @@ void node_at_point(double x, double y, struct wlr_surface **psurface,
 	LayerSurface *l = NULL;
 	MangoBarDecoration *mangobar = NULL;
 	int32_t layer;
-	Client *ovc = NULL;
 
 	if (psurface)
 		*psurface = NULL;
@@ -308,20 +307,6 @@ void node_at_point(double x, double y, struct wlr_surface **psurface,
 	if (bar)
 		*bar = mangobar;
 
-	if (server.selected_monitor && server.selected_monitor->isoverview) {
-		ovc = client_at_point(x, y);
-
-		if (ovc && (!l || layer_ignores_focus(l))) {
-			if (pc)
-				*pc = ovc;
-			if (psurface)
-				*psurface = ovc ? client_surface(ovc) : NULL;
-			if (pl)
-				*pl = NULL;
-			if (bar)
-				*bar = NULL;
-		}
-	}
 }
 /*
  * Extra protocol: xdg-decoration, session lock, drm lease, image capture,

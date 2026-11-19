@@ -66,7 +66,7 @@ static bool tab_layout_enabled(const Monitor *m) {
 }
 
 bool tab_layout_active(const Monitor *m) {
-	return m && !m->isoverview && tab_layout_enabled(m);
+	return m && tab_layout_enabled(m);
 }
 
 static bool tab_state_ok(const Client *c) {
@@ -92,7 +92,7 @@ static bool tab_member_kept(Monitor *m, uint32_t cur, Client *c) {
 }
 
 static bool tab_member_in_view(Client *c, Monitor *m) {
-	return c && c->mon == m && !m->isoverview && VISIBLEON(c, m);
+	return c && c->mon == m && VISIBLEON(c, m);
 }
 
 static bool tab_focus_can_render(const Client *c) {
@@ -230,9 +230,6 @@ void tab_replace_client(Client *old, Client *new) {
 
 void tab_sync_monitor(Monitor *m) {
 	if (!m || !m->wlr_output || !m->wlr_output->enabled || m->iscleanuping)
-		return;
-
-	if (m->isoverview)
 		return;
 
 	if (!tab_layout_enabled(m) && tab_member_count == 0)

@@ -653,8 +653,7 @@ void grid(Monitor *m) {
 			if (c->mon != m)
 				continue;
 			if (VISIBLEON(c, m) && !c->isunglobal &&
-				((m->isoverview && !client_is_x11_popup(c)) ||
-				 ISFAKETILED(c))) {
+				(ISFAKETILED(c))) {
 				cw = (m->w.width - 2 * target_gappo) * single_width_ratio;
 				ch = (m->w.height - 2 * target_gappo) * single_height_ratio;
 				target_geom.x = m->w.x + (m->w.width - cw) / 2;
@@ -675,8 +674,7 @@ void grid(Monitor *m) {
 			if (c->mon != m)
 				continue;
 			if (VISIBLEON(c, m) && !c->isunglobal &&
-				((m->isoverview && !client_is_x11_popup(c)) ||
-				 ISFAKETILED(c))) {
+				(ISFAKETILED(c))) {
 				if (i < 2)
 					col_pers[i] =
 						(c->grid_col_per > 0.0f) ? c->grid_col_per : 1.0f;
@@ -694,8 +692,7 @@ void grid(Monitor *m) {
 			if (c->mon != m)
 				continue;
 			if (VISIBLEON(c, m) && !c->isunglobal &&
-				((m->isoverview && !client_is_x11_popup(c)) ||
-				 ISFAKETILED(c))) {
+				(ISFAKETILED(c))) {
 				c->grid_col_idx = i;
 				c->grid_row_idx = 0;
 				c->grid_col_per = col_pers[i];
@@ -749,7 +746,7 @@ void grid(Monitor *m) {
 		if (c->mon != m)
 			continue;
 		if (VISIBLEON(c, m) && !c->isunglobal &&
-			((m->isoverview && !client_is_x11_popup(c)) || ISFAKETILED(c))) {
+			(ISFAKETILED(c))) {
 			int32_t c_idx = i % cols;
 			int32_t r_idx = i / cols;
 			if (r_idx == 0)
@@ -777,7 +774,7 @@ void grid(Monitor *m) {
 		if (c->mon != m)
 			continue;
 		if (VISIBLEON(c, m) && !c->isunglobal &&
-			((m->isoverview && !client_is_x11_popup(c)) || ISFAKETILED(c))) {
+			(ISFAKETILED(c))) {
 			int32_t c_idx = i % cols;
 			int32_t r_idx = i / cols;
 

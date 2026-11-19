@@ -4,7 +4,6 @@
 #include "mango/common/log.h"
 #include "mango/common/scene_node.h"
 #include "mango/common/server.h"
-#include "mango/layout/canvas.h"
 #include "mango/common/util.h"
 #include "mango/dispatch/bind.h"
 #include "mango/draw/title-message-bar.h"
@@ -14,6 +13,7 @@
 #include "mango/input/pointer.h"
 #include "mango/ipc/ipc.h"
 #include "mango/layout/arrange.h"
+#include "mango/layout/canvas.h"
 #include "mango/layout/dwindle.h"
 #include "mango/layout/layout.h"
 #include "mango/layout/scroll.h"
@@ -22,7 +22,6 @@
 #include "mango/manage/monitor.h"
 #include "mango/manage/tab.h"
 #include "mango/manage/xwayland_primary.h"
-#include "mango/overview/overview.h"
 #include "mango/switcher/switcher.h"
 #include <fcntl.h>
 #include <scenefx/render/fx_renderer/fx_renderer.h>
@@ -558,10 +557,9 @@ void client_update_xwayland_clip(Client *c, struct wlr_box *clip) {
 		// clip means the window runs off the screen - that has to crop. the
 		// heuristic squashed a window that ran off the right and bottom edges
 		// at 100% (bar pitch 88 instead of 100)
-		bool zoom_like =
-			z == 1.0 && clip->x == 0 && clip->y == 0 && clip->width < inner_w &&
-			clip->height < inner_h &&
-			(!c->mon || !canvas_active(c->mon) || c->mon->isoverview);
+		bool zoom_like = z == 1.0 && clip->x == 0 && clip->y == 0 &&
+						 clip->width < inner_w && clip->height < inner_h &&
+						 (!c->mon || !canvas_active(c->mon));
 		if (zoom_like) {
 			src.x = 0;
 			src.y = 0;
@@ -965,8 +963,7 @@ bool check_hit_no_border(Client *c) {
 		hit_no_border = true;
 	}
 
-	if (c->mon && !c->mon->isoverview &&
-		c->mon->pertag->no_render_border[get_client_tag_idx(c)]) {
+	if (c->mon && c->mon->pertag->no_render_border[get_client_tag_idx(c)]) {
 		hit_no_border = true;
 	}
 
@@ -976,7 +973,7 @@ bool check_hit_no_border(Client *c) {
 		hit_no_border = true;
 	}
 
-	if (config.monocle_no_border && ISFAKETILED(c) && !c->mon->isoverview &&
+	if (config.monocle_no_border && ISFAKETILED(c) &&
 		is_monocle_layout(c->mon)) {
 		hit_no_border = true;
 	}
@@ -1229,8 +1226,7 @@ Client *find_client_by_direction(Client *tc, const Arg *arg,
 			if (step == 0) {
 				if (!tc->mon || c->mon != tc->mon)
 					continue;
-				if (!tc->mon->isoverview &&
-					!client_is_in_same_stack(tc, c, NULL))
+				if (!client_is_in_same_stack(tc, c, NULL))
 					continue;
 			}
 
@@ -1662,10 +1658,8 @@ void set_float_malposition(Client *tc) {
 }
 
 void client_reset_mon_tags(Client *c, Monitor *mon, uint32_t newtags) {
-	if (!newtags && mon && !mon->isoverview) {
+	if (!newtags && mon) {
 		c->tags = mon->tagset[mon->seltags];
-	} else if (!newtags && mon && mon->isoverview) {
-		c->tags = mon->ovbk_current_tagset;
 	} else if (newtags) {
 		uint32_t masked =
 			(newtags & TAG0_MASK) ? TAG0_MASK : (newtags & TAGMASK);
@@ -2084,11 +2078,7 @@ void client_set_xwayland(Client *c) {
 	if (client_is_x11(c)) {
 #ifdef XWAYLAND
 		/* c->mon is only determined after applyrules/setmon; apply XWayland
-		 * scaling here. overview_backup_geom is snapshotted from the logical
-		 * geometry in handle_client_map before any layout runs; do not
-		 * overwrite it with transient arranged geometry here, otherwise X11
-		 * windows mapped while in overview, and terminals restored after a
-		 * swallowed X11 window closes, keep a stale tiny overview card. */
+		 * scaling here. */
 		xwayland_apply_scale(c);
 #endif
 	}
@@ -2170,7 +2160,6 @@ void init_client_properties(Client *c) {
 	c->group_bar = NULL;
 	c->tab_bar = NULL;
 	c->dim_node = NULL;
-	c->overview_scene_surface = NULL;
 	c->drop_direction = UNDIR;
 	c->enable_drop_area_draw = false;
 	c->isfocusing = false;
@@ -2183,9 +2172,6 @@ void init_client_properties(Client *c) {
 	c->isterm = 0;
 	c->no_blur = 0;
 	c->tearing_hint = 0;
-	c->overview_isfullscreenbak = 0;
-	c->overview_ismaximizescreenbak = 0;
-	c->overview_isfloatingbak = 0;
 	c->pid = 0;
 	c->swallowdby = NULL;
 	c->swallowing = NULL;
@@ -2246,11 +2232,6 @@ void init_client_properties(Client *c) {
 	c->allow_shortcuts_inhibit = SHORTCUTS_INHIBIT_ENABLE;
 	c->idleinhibit_when_focus = 0;
 	c->vrr_only_fullscreen = 0;
-	/* On unmap while in overview, destroy the card tree first to avoid a leak.
-	 */
-	overview_destroy_card(c);
-	c->ov_card_tree = NULL;
-	wl_list_init(&c->ov_card_surfaces);
 	c->force_render = 0;
 	c->activation_bypass = 0;
 	c->scroller_proportion_single = 0.0f;
@@ -2278,8 +2259,6 @@ void init_client_properties(Client *c) {
 	c->opacity_animation.current_opacity = c->unfocused_opacity;
 	c->animation.tagining = false;
 	c->animation.running = false;
-	c->animation.overining = false;
-	c->animation.overview_enter_anim_set = false;
 	c->animation.tagouting = false;
 	c->animation.tagouted = false;
 
@@ -2363,7 +2342,6 @@ void handle_client_map(struct wl_listener *listener, void *data) {
 	c->geom.width += 2 * c->bw;
 	c->geom.height += 2 * c->bw;
 	c->float_geom = c->geom;
-	c->overview_backup_geom = c->geom;
 
 	struct wayland_string appid, title;
 	struct wlr_ext_foreign_toplevel_handle_v1_state foreign_toplevel_state = {
@@ -2458,10 +2436,6 @@ void handle_client_map(struct wl_listener *listener, void *data) {
 
 	// set border color
 	client_update_border_color(c);
-
-	if (c->mon && c->mon->isoverview) {
-		overview_backup_surface(c);
-	}
 
 	// make sure the animation is open type
 	c->is_pending_open_animation = true;
@@ -2638,11 +2612,6 @@ void handle_client_unmap(struct wl_listener *listener, void *data) {
 
 		if (nextfocus) {
 			client_focus(nextfocus, 1);
-		}
-
-		if (!nextfocus && server.selected_monitor->isoverview) {
-			Arg arg = {0};
-			toggle_overview(&arg);
 		}
 	}
 
@@ -3164,7 +3133,7 @@ void client_view_on_monitor(const Arg *arg, bool want_animation, Monitor *m,
 							bool changefocus) {
 	uint32_t i, tmptag;
 
-	if (!m || (arg->ui != (~0 & TAGMASK) && m->isoverview)) {
+	if (!m) {
 		return;
 	}
 
@@ -3397,8 +3366,6 @@ void view_insert_shift_tags(Monitor *m, uint32_t target) {
 
 	m->tagset[m->seltags] = tag_remap_mask(m->tagset[m->seltags], map);
 	m->tagset[m->seltags ^ 1] = tag_remap_mask(m->tagset[m->seltags ^ 1], map);
-	m->ovbk_current_tagset = tag_remap_mask(m->ovbk_current_tagset, map);
-	m->ovbk_prev_tagset = tag_remap_mask(m->ovbk_prev_tagset, map);
 
 	if (m->pertag->curtag <= (uint32_t)config.tag_num && map[m->pertag->curtag])
 		m->pertag->curtag = map[m->pertag->curtag];
@@ -3514,9 +3481,6 @@ void client_set_fullscreen(
 		c == server.grab_client)
 		return;
 
-	if (c->mon->isoverview)
-		return;
-
 	bool canvas_was_sized_by_screen = c->isfullscreen;
 	c->isfullscreen = fullscreen;
 
@@ -3573,8 +3537,7 @@ void client_set_fake_fullscreen(Client *c, int32_t fakefullscreen) {
 static void maximize_screen_gaps(Client *c, int32_t *gappoh, int32_t *gappov) {
 	*gappoh = config.gappoh;
 	*gappov = config.gappov;
-	if (config.monocle_no_gap && c->mon && !c->mon->isoverview &&
-		is_monocle_layout(c->mon)) {
+	if (config.monocle_no_gap && c->mon && is_monocle_layout(c->mon)) {
 		*gappoh = 0;
 		*gappov = 0;
 	}
@@ -3586,9 +3549,6 @@ void client_set_maximize_screen(Client *c, int32_t maximizescreen,
 	int32_t gappoh, gappov;
 	if (!c || !c->mon || !client_surface(c)->mapped || c->iskilling ||
 		c == server.grab_client)
-		return;
-
-	if (c->mon->isoverview)
 		return;
 
 	bool canvas_was_sized_by_screen = c->ismaximizescreen;
@@ -4008,7 +3968,6 @@ void client_replace(Client *c, Client *w, bool is_group_change_member,
 	c->master_mfact_per = w->master_mfact_per;
 	c->scroller_proportion = w->scroller_proportion;
 	c->isglobal = w->isglobal;
-	c->overview_backup_geom = w->overview_backup_geom;
 	c->animation.current = w->animation.current;
 	c->scroller_stack_proportion = w->scroller_stack_proportion;
 
@@ -4022,16 +3981,6 @@ void client_replace(Client *c, Client *w, bool is_group_change_member,
 	mango_bar_decoration_set_focus(c->group_bar,
 								   server.selected_monitor &&
 									   c == server.selected_monitor->sel);
-
-	/* If the old window is in overview, destroy its card tree. */
-	overview_destroy_card(w);
-	if (w->overview_scene_surface) {
-		w->overview_scene_surface = NULL;
-	}
-
-	if (c->mon && c->mon->isoverview) {
-		overview_backup_surface(c);
-	}
 
 	if (w->group_bar && !is_group_change_member) {
 		wlr_scene_node_set_enabled(&w->group_bar->scene->node, false);
@@ -4293,12 +4242,12 @@ void client_tile_resize(Client *c, struct wlr_box geo, int32_t interact) {
 	if (!ISFAKETILED(c) || !c->mon)
 		return;
 
-	if (!c->mon->isoverview && !c->isfullscreen && client_wants_group_bar(c)) {
+	if (!c->isfullscreen && client_wants_group_bar(c)) {
 		geo.y = geo.y + config.group_bar_height;
 		geo.height -= config.group_bar_height;
 	}
 
-	if (!c->mon->isoverview && !c->isfullscreen && config.tab_bar_height > 0 &&
+	if (!c->isfullscreen && config.tab_bar_height > 0 &&
 		(c->tab_prev || c->tab_next)) {
 		geo.y = geo.y + (int32_t)config.tab_bar_height;
 		geo.height -= (int32_t)config.tab_bar_height;
@@ -4331,12 +4280,6 @@ bool client_should_visible(Client *c) {
 
 	if (c->is_clip_to_hide)
 		return false;
-
-	if (c->ov_card_tree)
-		return true;
-
-	if (c->mon && c->mon->isoverview && c->overview_scene_surface)
-		return true;
 
 	if (c->is_tab_hidden)
 		return false;
@@ -4376,8 +4319,7 @@ void client_update_visibility(Client *c) {
 	if (c->scene->node.enabled != show)
 		wlr_scene_node_set_enabled(&c->scene->node, show);
 
-	bool surface_show =
-		!c->is_surface_hidden && !c->ov_card_tree && !c->overview_scene_surface;
+	bool surface_show = !c->is_surface_hidden;
 
 	if (c->scene_surface && c->scene_surface->node.enabled != surface_show)
 		wlr_scene_node_set_enabled(&c->scene_surface->node, surface_show);
@@ -4394,11 +4336,7 @@ void client_add_jump_label_node(Client *c) {
 		mango_jump_label_node_create(c->scene, config.jumplabeldata);
 	if (!c->jump_label_node)
 		return;
-	/* In overview, labels must be displayed above the card tree. */
-	if (c->ov_card_tree)
-		wlr_scene_node_raise_to_top(&c->jump_label_node->scene->node);
-	else
-		wlr_scene_node_lower_to_bottom(&c->jump_label_node->scene->node);
+	wlr_scene_node_lower_to_bottom(&c->jump_label_node->scene->node);
 	wlr_scene_node_set_enabled(&c->jump_label_node->scene->node, false);
 }
 
@@ -4516,9 +4454,6 @@ bool client_group_swap_focus(Client *c) {
 	if (!cur_focusing || !cur_focusing->mon)
 		return false;
 
-	if (cur_focusing->mon->isoverview)
-		return false;
-
 	cur_focusing->is_group_focus = false;
 	c->mon = cur_focusing->mon;
 	client_replace(c, cur_focusing, true, false);
@@ -4548,9 +4483,8 @@ void client_check_tab_node_visible(Client *c) {
 
 	Client *cur = client_group_head(c);
 	while (cur) {
-		bool show = !c->mon->isoverview && cur->group_bar &&
-					client_wants_group_bar(cur) && TAGMATCH(c, c->mon) &&
-					ISNORMAL(c) && !c->isfullscreen;
+		bool show = cur->group_bar && client_wants_group_bar(cur) &&
+					TAGMATCH(c, c->mon) && ISNORMAL(c) && !c->isfullscreen;
 		if (!cur->group_bar) {
 			cur = cur->group_next;
 			continue;

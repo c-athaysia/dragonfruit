@@ -4,10 +4,9 @@
 #include "mango/animation/layer.h"
 #include "mango/common/log.h"
 #include "mango/common/server.h"
-#include "mango/draw/shader_bg.h"
-#include "mango/layout/canvas.h"
 #include "mango/common/util.h"
 #include "mango/dispatch/bind.h"
+#include "mango/draw/shader_bg.h"
 #include "mango/draw/title-message-bar.h"
 #include "mango/ext-protocol/ext-workspace.h"
 #include "mango/ext-protocol/foreign-toplevel.h"
@@ -17,6 +16,7 @@
 #include "mango/ext-protocol/xdg-output.h"
 #include "mango/ipc/ipc.h"
 #include "mango/layout/arrange.h"
+#include "mango/layout/canvas.h"
 #include "mango/layout/dwindle.h"
 #include "mango/layout/layout.h"
 #include "mango/layout/scroll.h"
@@ -46,7 +46,7 @@
 #include <wlr/types/wlr_switch.h>
 
 bool is_special_active(const Monitor *m) {
-	return m && !m->isoverview && (m->tagset[m->seltags] & TAG0_MASK);
+	return m && (m->tagset[m->seltags] & TAG0_MASK);
 }
 
 uint32_t get_mon_curtag(const Monitor *m) {
@@ -145,11 +145,6 @@ bool is_centertile_layout(Monitor *m) {
 		return true;
 
 	return false;
-}
-
-bool is_overcircle_mode(const Monitor *m) {
-	return m && m->isoverview && m->ov_tab_layout && !m->is_jump_mode &&
-		   !m->ov_normal_mode;
 }
 
 void special_sync_top_layer(bool special_active) {
@@ -712,11 +707,8 @@ void handle_new_output(struct wl_listener *listener, void *data) {
 	m->special_gappiv = config.special_gappiv;
 	m->special_gappoh = config.special_gappoh;
 	m->special_gappov = config.special_gappov;
-	m->isoverview = 0;
 	m->sel = NULL;
 	m->is_in_hotarea = 0;
-	m->ov_normal_mode = 0;
-	m->ov_tab_layout = 0;
 	m->m.x = INT32_MAX;
 	m->m.y = INT32_MAX;
 
@@ -991,10 +983,6 @@ void monitor_close(Monitor *m) {
 	if (server.gesture_drive_mon == m) {
 		server.gesture_drive_active = false;
 		server.gesture_drive_mon = NULL;
-	}
-
-	if (m->isoverview) {
-		toggle_overview(&(Arg){0});
 	}
 
 	if (!nmons) {

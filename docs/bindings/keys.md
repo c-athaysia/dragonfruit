@@ -123,7 +123,7 @@ bindr=Super,Super_L,spawn,rofi -show run
 | `focusdir` | `left/right/up/down` | Focus window in direction. |
 | `focus_window_or_workspace` | `left/right/up/down` | Focus window in direction; otherwise jump to the nearest adjacent tag that has clients, falling back to the next/previous tag if none. |
 | `focusstack` | `next/prev` | Cycle focus within the stack. |
-| `overcircle` | `next/prev/current_next/current_prev` | Open overview when closed; while it is open, cycle focus to the next/previous window on the current monitor. `current_next`/`current_prev` only show the current tagset's windows in the overview instead of all tags. |
+| `overcircle` | `next/prev/current_next/current_prev` | Open the canvas overview when it is closed; while it is open, focus the next (`next`, `current_next`) or previous (`prev`, `current_prev`) window. |
 | `focuslast` | - | Focus the previously active window. |
 | `switcher` | `next/prev`, `all_tag_next/all_tag_prev`, `all_next/all_prev` | Open or cycle the thumbnail switcher. `next`/`prev` list the current tag's windows, `all_tag_next`/`all_tag_prev` list all tags on the current monitor, `all_next`/`all_prev` list all monitors and tags. Releasing any modifier key selects. |
 | `exchange_client` | `left/right/up/down` | Swap the focused window with its neighbor in direction. Both windows change place, and with `exchange_cross_monitor` enabled they also swap monitors. |
@@ -176,10 +176,10 @@ It is formed by tag numbers `1`–`9`, optionally combined with `|`.
 | `reload_config` | - | Hot-reload configuration. Does not support keybind conflict (`c` flag). |
 | `load_config_file` | `file path` | Load configuration from the specified file. Empty path resets to default config location. Does not support keybind conflict (`c` flag). |
 | `quit` | - | Exit Dragonfruit. |
-| `toggleoverview` | `[1]` | Toggle overview mode. Passing `1` only shows the current tagset's windows in the overview instead of all tags. |
-| `enteroverview` | - | Enter overview mode. |
-| `leaveoverview` | - | Leave overview mode. |
-| `togglejump` | - | On the canvas, the same as `canvas_jump`: the canvas overview with jump letters. |
+| `toggleoverview` | `[1]` | Same as `canvas_overview`. The argument is ignored. |
+| `enteroverview` | - | Open the canvas overview. |
+| `leaveoverview` | - | Close the canvas overview. |
+| `togglejump` | - | Same as `canvas_jump`: the canvas overview with jump letters. |
 | `create_virtual_output` | - | Create a headless monitor (for VNC/Sunshine). |
 | `destroy_all_virtual_output` | - | Destroy all virtual monitors. |
 | `toggleoverlay` | - | Toggle overlay state for the focused window. |

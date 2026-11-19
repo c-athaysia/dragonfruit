@@ -4,7 +4,6 @@
 #include "mango/common/log.h"
 #include "mango/common/scene_node.h"
 #include "mango/common/server.h"
-#include "mango/layout/canvas.h"
 #include "mango/common/util.h"
 #include "mango/dispatch/bind.h"
 #include "mango/input/device.h"
@@ -12,6 +11,7 @@
 #include "mango/input/trackpad.h"
 #include "mango/ipc/ipc.h"
 #include "mango/layout/arrange.h"
+#include "mango/layout/canvas.h"
 #include "mango/layout/dwindle.h"
 #include "mango/layout/layout.h"
 #include "mango/layout/scroll.h"
@@ -173,8 +173,7 @@ static bool pointer_node_enabled(struct wlr_scene_node *node) {
 }
 
 static bool pointer_client_visible(Client *c) {
-	return c && c->mon && !c->mon->isoverview && client_surface(c)->mapped &&
-		   VISIBLEON(c, c->mon);
+	return c && c->mon && client_surface(c)->mapped && VISIBLEON(c, c->mon);
 }
 
 static Client *confine_pointer_last = NULL;
@@ -193,7 +192,7 @@ static Client *pointer_confine_rule_client(void) {
 	}
 
 	if (!c || !c->confine_pointer || !client_surface(c)->mapped || !c->mon ||
-		c->mon->isoverview || c->isminimized || !VISIBLEON(c, c->mon) ||
+		c->isminimized || !VISIBLEON(c, c->mon) ||
 		!pointer_node_enabled(&c->scene->node)) {
 		return NULL;
 	}
@@ -235,8 +234,7 @@ static bool pointer_constraint_surface_visible(
 static void
 pointer_warp_into_constraint(struct wlr_pointer_constraint_v1 *constraint,
 							 Client *c) {
-	if (!c || !c->mon || c->mon->isoverview ||
-		!pointer_constraint_surface_visible(constraint)) {
+	if (!c || !c->mon || !pointer_constraint_surface_visible(constraint)) {
 		return;
 	}
 
@@ -393,7 +391,6 @@ void toggle_hotarea(int32_t x_root, int32_t y_root) {
 	if (config.enable_hotarea == 1 &&
 		server.selected_monitor->is_in_hotarea == 0 && in_hotarea) {
 		/* Hot-area entry: uses the normal grid layout. */
-		server.selected_monitor->ov_normal_mode = 1;
 		toggle_overview(&arg);
 		server.selected_monitor->is_in_hotarea = 1;
 	} else if (config.enable_hotarea == 1 &&
@@ -860,7 +857,7 @@ static uint32_t client_resize_edge_at(Client *c, struct wlr_surface *surface,
 	 * must keep receiving its own input instead of resizing the parent. */
 	if (surface && surface != client_surface(c))
 		return 0;
-	if (!c->mon || c->mon->isoverview || !VISIBLEON(c, c->mon))
+	if (!c->mon || !VISIBLEON(c, c->mon))
 		return 0;
 
 	int32_t t = client_resize_grab(c);
@@ -1517,10 +1514,8 @@ void pointer_focus(Client *c, struct wlr_surface *surface, double sx, double sy,
 	 * change: the keyboard focus would be restored after the drag ends. */
 	if (config.sloppyfocus && !server.start_drag_window && !server.seat->drag &&
 		c && time && c->scene && c->scene->node.enabled &&
-		(!c->mon || !is_overcircle_mode(c->mon)) && !c->animation.tagining &&
-		(surface != server.seat->pointer_state.focused_surface ||
-		 (server.selected_monitor && server.selected_monitor->isoverview &&
-		  server.selected_monitor->sel != c)) &&
+		!c->animation.tagining &&
+		surface != server.seat->pointer_state.focused_surface &&
 		!client_is_unmanaged(c) && VISIBLEON(c, c->mon)) {
 		// no canvas_follow_focus here
 		// client_focus already calls it and returns early if already focused
@@ -1568,21 +1563,16 @@ void pointer_focus(Client *c, struct wlr_surface *surface, double sx, double sy,
 		sy /= c->mon->zoom;
 	}
 
-	if (!c || !c->mon || !c->mon->isoverview) {
-		// don't let window get pointer focus,
-		// avoid game window force grab pointer in overview mode
-		struct wlr_surface *old_focus =
-			server.seat->pointer_state.focused_surface;
-		wlr_seat_pointer_notify_enter(server.seat, surface, sx, sy);
+	struct wlr_surface *old_focus = server.seat->pointer_state.focused_surface;
+	wlr_seat_pointer_notify_enter(server.seat, surface, sx, sy);
 
-		if (surface != old_focus) {
-			struct wlr_pointer_constraint_v1 *constraint;
-			wl_list_for_each(constraint,
-							 &server.pointer_constraints->constraints, link) {
-				if (constraint->surface == surface) {
-					pointer_constrain_cursor(constraint);
-					break;
-				}
+	if (surface != old_focus) {
+		struct wlr_pointer_constraint_v1 *constraint;
+		wl_list_for_each(constraint, &server.pointer_constraints->constraints,
+						 link) {
+			if (constraint->surface == surface) {
+				pointer_constrain_cursor(constraint);
+				break;
 			}
 		}
 	}
@@ -1847,8 +1837,8 @@ bool pointer_process_button_press(struct wlr_pointer_button_event *event) {
 			event->button == BTN_LEFT) {
 			struct wlr_surface *ov_surface = NULL;
 			Client *ov_c = NULL;
-			node_at_point(server.cursor->x, server.cursor->y, &ov_surface, &ov_c,
-						  NULL, NULL, NULL, NULL);
+			node_at_point(server.cursor->x, server.cursor->y, &ov_surface,
+						  &ov_c, NULL, NULL, NULL, NULL);
 			if (ov_c) {
 				client_focus(ov_c, 1);
 				canvas_overview_pick(ov_c);
@@ -1895,19 +1885,6 @@ bool pointer_process_button_press(struct wlr_pointer_button_event *event) {
 					l->layer_surface->surface) {
 				layer_focus(l);
 			}
-		}
-
-		// In overview mode, left click jumps and right click closes windows.
-		if (server.selected_monitor && server.selected_monitor->isoverview &&
-			event->button == BTN_LEFT && c) {
-			toggle_overview(&(Arg){.tc = c});
-			return true;
-		}
-
-		if (server.selected_monitor && server.selected_monitor->isoverview &&
-			event->button == BTN_RIGHT && c) {
-			pending_kill_client(c);
-			return true;
 		}
 
 		if (bar && !bar->is_tab && bar->node_data &&

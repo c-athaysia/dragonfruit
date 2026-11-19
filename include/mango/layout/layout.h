@@ -5,7 +5,6 @@
 #include "mango/layout/canvas.h"
 #include "mango/layout/dwindle.h"
 #include "mango/layout/horizontal.h"
-#include "mango/layout/overview.h"
 #include "mango/layout/scroll.h"
 #include "mango/layout/vertical.h"
 #include <stdbool.h>
@@ -19,7 +18,6 @@ typedef struct Layout {
 	uint32_t id;
 } Layout;
 
-extern Layout overviewlayout;
 
 enum {
 	TILE,

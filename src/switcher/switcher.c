@@ -414,13 +414,7 @@ bool switcher_title_message_bar_geometry(Monitor *m, Client **client,
 
 void switcher_open(int scope, int dir) {
 	Client *c;
-	Monitor *m;
 	int n = 0;
-
-	wl_list_for_each(m, &server.monitors, link) {
-		if (m->isoverview)
-			return;
-	}
 
 	switcher_state.mon = server.selected_monitor;
 	switcher_state.scope = scope;

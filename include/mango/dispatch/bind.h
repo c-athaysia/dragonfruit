@@ -41,7 +41,6 @@ bool client_group_leave(Client *tc);
 int32_t toggle_overview(const Arg *arg);
 int32_t enter_overview(const Arg *arg);
 int32_t leave_overview(const Arg *arg);
-void set_overview(const Arg *arg, bool enter, Monitor *m);
 int32_t switcher(const Arg *arg);
 int32_t toggle_hdr(const Arg *arg);
 int32_t toggle_jump(const Arg *arg);

@@ -45,38 +45,10 @@ static void title_message_bar_set_text(MangoBarDecoration *bar, Client *c,
 	g_free(text);
 }
 
-static bool overcircle_title_bar_geometry(Monitor *m, bool use_animation,
-										  Client **client,
-										  struct wlr_box *box) {
-	if (!is_overcircle_mode(m) || !m->sel ||
-		config.title_message_bar_height == 0)
-		return false;
-
-	Client *c = m->sel;
-	struct wlr_box geo = use_animation ? c->animation.current : c->geom;
-	if (geo.width <= 0 || geo.height <= 0)
-		geo = use_animation ? c->geom : c->animation.current;
-	if (geo.width <= 0)
-		return false;
-
-	if (client)
-		*client = c;
-	if (box) {
-		*box = (struct wlr_box){
-			.x = geo.x,
-			.y = geo.y + geo.height + (int)config.title_message_bar_gap,
-			.width = geo.width,
-			.height = (int)config.title_message_bar_height,
-		};
-	}
-	return true;
-}
-
 static bool title_message_bar_geometry(Monitor *m, bool use_animation,
 									   Client **client, struct wlr_box *box) {
-	if (switcher_title_message_bar_geometry(m, client, box))
-		return true;
-	return overcircle_title_bar_geometry(m, use_animation, client, box);
+	(void)use_animation;
+	return switcher_title_message_bar_geometry(m, client, box);
 }
 
 void title_message_bar_finish(Monitor *m) {
@@ -110,15 +82,9 @@ void title_message_bar_update_title(Client *c) {
 		return;
 
 	Client *target = NULL;
-	if (switcher_title_message_bar_geometry(c->mon, &target, NULL)) {
-		if (target != c)
-			return;
-	} else if (is_overcircle_mode(c->mon)) {
-		if (c->mon->sel != c)
-			return;
-	} else {
+	if (!switcher_title_message_bar_geometry(c->mon, &target, NULL) ||
+		target != c)
 		return;
-	}
 
 	MangoBarDecoration *bar = c->mon->title_message_bar;
 	title_message_bar_set_text(bar, c, c->mon->wlr_output->scale);

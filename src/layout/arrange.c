@@ -513,9 +513,6 @@ void resize_tile_grid_fair(Client *gc, bool isdrag, int32_t offsetx,
 	if (!gc || gc->isfullscreen || gc->ismaximizescreen)
 		return;
 	Monitor *m = gc->mon;
-	if (m->isoverview)
-		return;
-
 	if (m->visible_tiling_clients <= 1)
 		return;
 
@@ -802,9 +799,6 @@ void resize_tile_scroller(Client *gc, bool isdrag, int32_t offsetx,
 
 	if (!gc || gc->isfullscreen || gc->ismaximizescreen || !gc->mon)
 		return;
-	if (gc->mon->isoverview)
-		return;
-
 	Monitor *m = gc->mon;
 	uint32_t tag = get_client_tag_idx(gc);
 	struct TagScrollerState *st = m->pertag->scroller_state[tag];
@@ -1009,9 +1003,6 @@ void resize_tile_client(Client *gc, bool isdrag, int32_t offsetx,
 						int32_t offsety) {
 
 	if (!gc || gc->isfullscreen || gc->ismaximizescreen || !gc->mon)
-		return;
-
-	if (gc->mon->isoverview)
 		return;
 
 	/* Coalesce keyboard repeats and pointer motion to once per output frame. */
@@ -1348,8 +1339,6 @@ void tag_gather_apply(Monitor *m) {
 	// remap current/previous views (and overview backups).
 	m->tagset[m->seltags] = tag_remap_mask(m->tagset[m->seltags], map);
 	m->tagset[m->seltags ^ 1] = tag_remap_mask(m->tagset[m->seltags ^ 1], map);
-	m->ovbk_current_tagset = tag_remap_mask(m->ovbk_current_tagset, map);
-	m->ovbk_prev_tagset = tag_remap_mask(m->ovbk_prev_tagset, map);
 
 	// keep view indices; empty tags stay unchanged.
 	if (m->pertag->curtag <= (uint32_t)config.tag_num && map[m->pertag->curtag])
@@ -1370,8 +1359,6 @@ void tag_gather_apply(Monitor *m) {
 	for (i = k + 1; i <= (uint32_t)config.tag_num; i++)
 		tag_gather_reset_slot(m, i);
 }
-
-Layout overviewlayout = {"󰃇", overview, "overview"};
 
 Layout layouts[] = {
 	// At least two are required; fewer than two cannot be removed.
@@ -1451,11 +1438,7 @@ void arrange(Monitor *m, bool want_animation, bool from_view) {
 		m->gappiv = m->special_gappiv;
 	}
 
-	if (m->isoverview) {
-		overviewlayout.arrange(m);
-	} else {
-		m->pertag->ltidxs[get_mon_curtag(m)]->arrange(m);
-	}
+	m->pertag->ltidxs[get_mon_curtag(m)]->arrange(m);
 
 	if (is_tag0) {
 		m->gappoh = saved_oh;

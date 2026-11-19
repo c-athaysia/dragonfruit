@@ -91,7 +91,7 @@ void set_arrange_visible(Monitor *m, Client *c, bool want_animation) {
 			c->animainit_geom.x = c->animation.current.x;
 			c->animainit_geom.y = c->animation.current.y;
 		}
-		resize(c, c->geom, (ResizeOpts){.skip_ov_enter_anim = true});
+		resize(c, c->geom, (ResizeOpts){0});
 		return;
 	}
 
@@ -108,7 +108,7 @@ void set_arrange_visible(Monitor *m, Client *c, bool want_animation) {
 			c->animainit_geom.x = c->animation.current.x;
 			c->animainit_geom.y = c->animation.current.y;
 		}
-		resize(c, c->geom, (ResizeOpts){.skip_ov_enter_anim = true});
+		resize(c, c->geom, (ResizeOpts){0});
 		return;
 	}
 
@@ -123,7 +123,7 @@ void set_arrange_visible(Monitor *m, Client *c, bool want_animation) {
 	c->animation.tag_from_rule = false;
 	c->animation.tagouting = false;
 	c->animation.tagouted = false;
-	resize(c, c->geom, (ResizeOpts){.skip_ov_enter_anim = true});
+	resize(c, c->geom, (ResizeOpts){0});
 }
 
 void set_tagout_animation(Monitor *m, Client *c) {
@@ -168,16 +168,6 @@ void set_tagout_animation(Monitor *m, Client *c) {
 void set_arrange_hidden(Monitor *m, Client *c, bool want_animation) {
 	c->tag_visible = false;
 
-	/* In overview every tag window must show its card and must not be disabled
-	 * by the hiding logic. */
-	if (c->ov_card_tree) {
-		c->is_clip_to_hide = false;
-		client_update_visibility(c);
-		c->animation.running = false;
-		c->animation.tagining = false;
-		c->animation.tagouting = false;
-		return;
-	}
 
 	/* Scratchpad windows slide up and out when hidden */
 	if (!(c->tags & TAG0_MASK) && c->is_in_scratchpad && c->isminimized) {
@@ -201,7 +191,7 @@ void set_arrange_hidden(Monitor *m, Client *c, bool want_animation) {
 	/* Special workspace windows should animate out or hide when special
 	 * workspace is not active */
 	if (c->tags & TAG0_MASK) {
-		if (want_animation && !m->isoverview && client_animations_enabled(c) &&
+		if (want_animation && client_animations_enabled(c) &&
 			!c->animation.tagouted) {
 			c->animation.tagouting = true;
 			c->animation.tagining = false;

@@ -60,14 +60,13 @@ enum { UP, DOWN, LEFT, RIGHT, UNDIR, ALLDIR }; /* smartmovewin */
 	 (((C)->tags & (M)->tagset[(M)->seltags])))
 #define SCRATCHPAD_SHOWN(C) ((C) && (C)->is_in_scratchpad && !(C)->isminimized)
 #define ISFULLSCREEN(A)                                                        \
-	((A)->isfullscreen || (A)->ismaximizescreen ||                             \
-	 (A)->overview_ismaximizescreenbak || (A)->overview_isfullscreenbak)
+((A)->isfullscreen || (A)->ismaximizescreen)
 
 struct Client {
 	/* Must keep these three elements in this order */
 	uint32_t type; // must at first in struct
 	struct wlr_box geom, pending, float_geom, animainit_geom,
-		overview_backup_geom, current,
+		current,
 		drag_begin_geom; /* layout-relative, includes border */
 	// position on the infinite plane - not tied to camera or monitor
 	// only canvas layout uses it
@@ -109,7 +108,6 @@ struct Client {
 	struct wlr_scene *image_capture_scene;
 	struct wlr_ext_image_capture_source_v1 *image_capture_source;
 	struct wlr_scene_surface *image_capture_scene_surface;
-	struct wlr_scene_tree *overview_scene_surface;
 	MangoJumpLabel *jump_label_node;
 	MangoDimNode *dim_node;
 	struct wl_list link;
@@ -157,15 +155,7 @@ struct Client {
 		ignore_maximize, ignore_minimize, idleinhibit_when_focus,
 		vrr_only_fullscreen, force_render, activation_bypass;
 	int32_t ismaximizescreen;
-	int32_t overview_backup_bw;
-	int32_t fullscreen_backup_x, fullscreen_backup_y, fullscreen_backup_w,
-		fullscreen_backup_h;
-	int32_t overview_isfullscreenbak, overview_ismaximizescreenbak,
-		overview_isfloatingbak;
 
-	struct wlr_scene_tree *ov_card_tree; /* Overview card tree (root surface
-											plus all subsurface nodes). */
-	struct wl_list ov_card_surfaces;	 /* struct ov_card_surface list */
 
 	struct wlr_xdg_toplevel_decoration_v1 *decoration;
 	struct wl_listener foreign_activate_request;

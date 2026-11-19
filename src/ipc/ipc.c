@@ -557,10 +557,6 @@ cJSON *tags_mask_to_array(uint32_t tag_mask) {
 cJSON *monitor_active_tags(Monitor *m) {
 	cJSON *arr = cJSON_CreateArray();
 	uint32_t tagset;
-	if (m->isoverview) {
-		cJSON_AddItemToArray(arr, cJSON_CreateNumber(0));
-		return arr;
-	}
 	tagset = get_monitor_active_tagset(m);
 	for (int i = 0; i < config.tag_num; i++)
 		if (tagset & (1 << i))

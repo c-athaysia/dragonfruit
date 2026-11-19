@@ -10,7 +10,6 @@
 #include "mango/layout/canvas_pack.h"
 #include "mango/layout/canvas_precompute.h"
 #include "mango/layout/layout.h"
-#include "mango/layout/overview.h"
 #include "mango/manage/client.h"
 #include "mango/manage/monitor.h"
 #include <math.h>
@@ -422,9 +421,9 @@ int32_t canvas_cascade(const Arg *arg) {
 // across the other axis
 // o moves with c - c itself, or both are in the multi select on c's monitor
 static bool canvas_in_group(Client *c, Client *o) {
-	return o == c || (c->canvas_selected && o->canvas_selected &&
-					  o->mon == c->mon && VISIBLEON(o, c->mon) &&
-					  ISFAKETILED(o));
+	return o == c ||
+		   (c->canvas_selected && o->canvas_selected && o->mon == c->mon &&
+			VISIBLEON(o, c->mon) && ISFAKETILED(o));
 }
 
 // nearest gap each way (left right up down in s) from one window at bx by to
@@ -883,11 +882,11 @@ void canvas_drop_preview(Client *c) {
 		wl_list_for_each(g, &server.clients, link) {
 			if (g == c || !canvas_in_group(c, g))
 				continue;
-			canvas_drop_show(
-				++n, g, m,
-				canvas_rect_to_layout(
-					m, g->canvas_geom.x + dx, g->canvas_geom.y + dy,
-					g->canvas_geom.width, g->canvas_geom.height));
+			canvas_drop_show(++n, g, m,
+							 canvas_rect_to_layout(m, g->canvas_geom.x + dx,
+												   g->canvas_geom.y + dy,
+												   g->canvas_geom.width,
+												   g->canvas_geom.height));
 		}
 	}
 	canvas_drop_show(0, c, m, b);
@@ -1189,7 +1188,7 @@ void canvas(Monitor *m) {
 	}
 	// the overview closed by click or canvas_overview while letters were up
 	// mangos grid overview arranges with its own layout so this never sees it
-	if (m->is_jump_mode && !m->canvas_overview && !m->isoverview)
+	if (m->is_jump_mode && !m->canvas_overview)
 		finish_jump_mode(m);
 	canvas_precompute_note(m);
 }
@@ -2475,6 +2474,27 @@ int32_t canvas_overview(const Arg *arg) {
 // the canvas overview with a letter on every window, press one to go to it
 // same overview as canvas_overview, clicking still works while the letters are
 // up and escape or pressing this again leaves
+void begin_jump_mode(Monitor *m) { m->is_jump_mode = 1; }
+
+void finish_jump_mode(Monitor *m) {
+	if (!m->is_jump_mode)
+		return;
+
+	Client *c;
+	wl_list_for_each(c, &server.clients, link) {
+		if (c->mon != m)
+			continue;
+
+		c->jump_char = '\0';
+		c->jump_keycodes = (MultiKeycode){0};
+
+		if (c->jump_label_node && c->jump_label_node->scene->node.enabled) {
+			wlr_scene_node_set_enabled(&c->jump_label_node->scene->node, false);
+		}
+	}
+	m->is_jump_mode = 0;
+}
+
 int32_t canvas_jump(const Arg *arg) {
 	Monitor *m = server.selected_monitor;
 	if (!m || !canvas_active(m))

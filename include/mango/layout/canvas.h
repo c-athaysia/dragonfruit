@@ -128,4 +128,6 @@ void canvas_apply_zoom_scale(Client *c);
 // pan keys push for as long as theyre held
 void canvas_pan_key_released(uint32_t keycode);
 
+void begin_jump_mode(Monitor *m);
+void finish_jump_mode(Monitor *m);
 #endif

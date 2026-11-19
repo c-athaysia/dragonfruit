@@ -17,7 +17,6 @@ bool is_horizontal_stack_layout(Monitor *monitor);
 bool is_horizontal_right_stack_layout(Monitor *monitor);
 
 int32_t is_special_animation_rule(Client *client);
-void set_overview_enter_animation(Client *c);
 void set_client_open_animation(Client *c, struct wlr_box geo);
 
 struct wlr_fbox scene_buffer_visible_box(struct wlr_scene_buffer *buffer,
@@ -57,8 +56,6 @@ void client_set_pending_state(Client *c);
 
 typedef struct ResizeOpts {
 	bool interact; // Interactive resize (window resized by mouse drag).
-	bool skip_ov_enter_anim; // Pre-arrangement stage: skip the overview enter
-							 // zoom.
 	bool force_configure; // Must be sent even if the box did not change (client
 						  // ConfigureRequest).
 	uint32_t drag_edge;
