@@ -14,6 +14,8 @@ typedef struct {
 	int32_t border_width;
 	float border_color[4];
 	bool border_color_set;
+	float inner_border_color[4]; // unset: inner_focus_color, then border_color
+	bool inner_border_color_set;
 	int32_t radius;
 	int32_t shadow;
 	int32_t shadow_size;

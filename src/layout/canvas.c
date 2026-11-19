@@ -591,7 +591,7 @@ typedef struct {
 	struct wlr_scene_tree *tree;
 	struct wlr_scene_shadow *shadow;
 	struct wlr_scene_blur *blur;
-	struct wlr_scene_rect *fill, *border;
+	struct wlr_scene_rect *fill, *border, *inner;
 } canvas_box;
 
 static canvas_box selbox;
@@ -631,6 +631,7 @@ static void canvas_box_ensure(canvas_box *b, struct wlr_scene_tree *parent) {
 		b->blur = wlr_scene_blur_create(b->tree, 0, 0);
 		b->fill = wlr_scene_rect_create(b->tree, 0, 0, config.dropcolor);
 		b->border = wlr_scene_rect_create(b->tree, 0, 0, config.focuscolor);
+		b->inner = wlr_scene_rect_create(b->tree, 0, 0, config.focuscolor);
 	} else if (b->tree->node.parent != parent) {
 		wlr_scene_node_reparent(&b->tree->node, parent);
 	}
@@ -656,25 +657,36 @@ static void canvas_box_decorate(canvas_box *b, const canvas_box_style *st,
 								const float fill[4], Monitor *m, int32_t w,
 								int32_t h) {
 	double z = m->zoom > 0.0 && m->zoom < 1.0 ? m->zoom : 1.0;
-	int32_t bw = st->border_width;
-	if (bw > 0)
+	// border_width is the outer ring like border_px, inner_border_px and
+	// inner_border_gap add a second ring inside it the same as on a window
+	int32_t bw = st->border_width, iw = 0, gap = 0;
+	if (bw > 0) {
 		bw = MANGO_MAX(1, (int32_t)lround(bw * z));
+		if (config.inner_borderpx > 0) {
+			iw = MANGO_MAX(1, (int32_t)lround(config.inner_borderpx * z));
+			gap = (int32_t)lround(config.inner_border_gap * z);
+		}
+	}
 	int32_t r = st->radius >= 0 ? st->radius : (int32_t)config.border_radius;
 	r = (int32_t)lround(r * z);
+	if (bw + gap + iw > MANGO_MIN(w, h) / 2)
+		iw = gap = 0; // too small for two rings, one border like a window
 	bw = MANGO_MIN(bw, MANGO_MIN(w, h) / 2);
+	int32_t tw = bw + gap + iw; // fill starts inside both rings
 	struct fx_corner_radii corners = corner_radii_all(r);
 
 	float col[4];
 	premultiply(fill, col);
 	wlr_scene_rect_set_color(b->fill, col);
-	wlr_scene_node_set_position(&b->fill->node, bw, bw);
-	wlr_scene_rect_set_size(b->fill, w - 2 * bw, h - 2 * bw);
+	wlr_scene_node_set_position(&b->fill->node, tw, tw);
+	wlr_scene_rect_set_size(b->fill, w - 2 * tw, h - 2 * tw);
 	wlr_scene_rect_set_corner_radii(b->fill, corners);
 
+	const float *outer =
+		st->border_color_set ? st->border_color : config.focuscolor;
 	wlr_scene_node_set_enabled(&b->border->node, bw > 0);
 	if (bw > 0) {
-		premultiply(st->border_color_set ? st->border_color : config.focuscolor,
-					col);
+		premultiply(outer, col);
 		wlr_scene_rect_set_color(b->border, col);
 		wlr_scene_rect_set_size(b->border, w, h);
 		wlr_scene_rect_set_corner_radii(b->border, corners);
@@ -683,6 +695,24 @@ static void canvas_box_decorate(canvas_box *b, const canvas_box_style *st,
 						   .area = {bw, bw, w - 2 * bw, h - 2 * bw},
 						   .corners = corners,
 					   });
+	}
+
+	wlr_scene_node_set_enabled(&b->inner->node, iw > 0);
+	if (iw > 0) {
+		int32_t in = bw + gap;
+		premultiply(st->inner_border_color_set	  ? st->inner_border_color
+					: config.inner_focuscolor_set ? config.inner_focuscolor
+												  : outer,
+					col);
+		wlr_scene_rect_set_color(b->inner, col);
+		wlr_scene_node_set_position(&b->inner->node, in, in);
+		wlr_scene_rect_set_size(b->inner, w - 2 * in, h - 2 * in);
+		wlr_scene_rect_set_corner_radii(b->inner, corners);
+		wlr_scene_rect_set_clipped_region(
+			b->inner, (struct clipped_region){
+						  .area = {iw, iw, w - 2 * tw, h - 2 * tw},
+						  .corners = corners,
+					  });
 	}
 
 	wlr_scene_node_set_enabled(&b->shadow->node, st->shadow);

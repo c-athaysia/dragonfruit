@@ -45,9 +45,10 @@ doesn't work here as it stands, that's a bug, so please report it.
 | `canvas_select_clear_on_click` | `1` | A plain click (no drag) on empty canvas clears the selection |
 | `canvas_select_window_color` | band border, else `urgent_color` | Border colour of selected windows |
 | `canvas_select_color` | `drop_color` | Fill of the rubber band |
-| `canvas_select_border_width` / `_border_color` / `_border_radius` / `_shadow` / `_shadow_size` / `_shadow_blur` / `_shadow_color` / `_shadow_position_x` / `_shadow_position_y` / `_blur` | as `canvas_drop_*` | Rubber band styling, the same options as the drop box |
+| `canvas_select_border_width` / `_border_color` / `_inner_border_color` / `_border_radius` / `_shadow` / `_shadow_size` / `_shadow_blur` / `_shadow_color` / `_shadow_position_x` / `_shadow_position_y` / `_blur` | as `canvas_drop_*` | Rubber band styling, the same options as the drop box |
 | `canvas_drop_border_width` | `0` | Border around the snap preview box (follows zoom) |
 | `canvas_drop_border_color` | `focus_color` | Its colour |
+| `canvas_drop_inner_border_color` | `inner_focus_color`, else the border colour | Inner ring when `inner_border_px` is set. The box then has a double border like a window: `canvas_drop_border_width` is the outer ring, `inner_border_gap` and `inner_border_px` add the gap and inner ring inside it |
 | `canvas_drop_border_radius` | `border_radius` | Corner radius of the box (follows zoom) |
 | `canvas_drop_shadow` | `0` | Shadow under the box |
 | `canvas_drop_shadow_size` / `_blur` / `_color` / `_position_x` / `_position_y` | the `shadows_*` values | Shadow details, same as for windows |

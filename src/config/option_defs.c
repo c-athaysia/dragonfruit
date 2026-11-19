@@ -14,19 +14,19 @@
 #include "mango/common/input-event-codes.h"
 #include "mango/common/log.h"
 #include "mango/common/server.h"
-#include "mango/draw/shader_bg.h"
-#include "mango/layout/canvas.h"
 #include "mango/common/util.h"
 #include "mango/config/error_nag.h"
 #include "mango/config/error_store.h"
 #include "mango/config/watcher.h"
 #include "mango/dispatch/bind.h"
+#include "mango/draw/shader_bg.h"
 #include "mango/ext-protocol/hdr.h"
 #include "mango/input/device.h"
 #include "mango/input/keyboard.h"
 #include "mango/input/pointer.h"
 #include "mango/ipc/ipc.h"
 #include "mango/layout/arrange.h"
+#include "mango/layout/canvas.h"
 #include "mango/layout/layout.h"
 #include "mango/manage/client.h"
 #include "mango/manage/layer.h"
@@ -86,6 +86,8 @@ static bool parse_canvas_box_key(Config *config, const char *key,
 		color = st->fill, color_set = &st->fill_set;
 	else if (strcmp(k, "border_color") == 0)
 		color = st->border_color, color_set = &st->border_color_set;
+	else if (strcmp(k, "inner_border_color") == 0)
+		color = st->inner_border_color, color_set = &st->inner_border_color_set;
 	else if (strcmp(k, "shadow_color") == 0)
 		color = st->shadow_color, color_set = &st->shadow_color_set;
 	if (color) {
