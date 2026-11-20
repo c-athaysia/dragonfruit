@@ -1,4 +1,5 @@
-# Make a release: Actions > release > Run workflow, type the version (0.2.0).
+# Make a release: Actions > release.yml > Run workflow. Leave the version
+# empty for the next patch release (0.1.0 -> 0.1.1), or type one (0.2.0).
 #
 # CI then, on the tip of the dragonfruit branch:
 #   bumps meson.build to the version and the Arch PKGBUILD's pkgver,
@@ -17,11 +18,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release, e.g. 0.2.0'
-        required: true
+        description: 'Version, e.g. 0.2.0 (empty = next patch release)'
+        type: string
+        required: false
+        default: ''
 
 env:
-  V: ${{ inputs.version }}
+  INPUT_VERSION: ${{ inputs.version }}
   TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
 jobs:
@@ -31,14 +34,22 @@ jobs:
       - name: Check out the branch
         run: |
           fail() { echo "::error::$1"; exit 1; }
-          echo "$V" | grep -qxE '[0-9]+\.[0-9]+\.[0-9]+' || fail "version must look like 0.2.0, got '$V'"
           url="$(echo "$GITHUB_SERVER_URL" | sed "s#://#://ci:$TOKEN@#")/$GITHUB_REPOSITORY.git"
-          git ls-remote --exit-code --tags "$url" "refs/tags/$V" >/dev/null && fail "tag $V already exists"
           git clone --depth 1 --branch dragonfruit "$url" src
+          V="$INPUT_VERSION"
+          if [ -z "$V" ]; then
+            cur=$(sed -n "s/^  version : '\\([0-9.]*\\)',/\\1/p" src/meson.build)
+            V=$(echo "$cur" | awk -F. '{print $1"."$2"."$3+1}')
+          fi
+          echo "$V" | grep -qxE '[0-9]+\.[0-9]+\.[0-9]+' || fail "version must look like 0.2.0, got '$V'"
+          git ls-remote --exit-code --tags "$url" "refs/tags/$V" >/dev/null && fail "tag $V already exists"
+          echo "releasing $V"
+          echo "$V" > version
 
       - name: Bump the version, commit, tag and push
         working-directory: src
         run: |
+          V=$(cat ../version)
           sed -i "s/^  version : '[^']*',/  version : '$V',/" meson.build
           sed -i -e "s/^pkgver=.*/pkgver=$V/" -e "s/^pkgrel=.*/pkgrel=1/" packaging/arch/dragonfruit/PKGBUILD
           e=packaging/gentoo/gui-wm/dragonfruit
@@ -54,7 +65,7 @@ jobs:
       - name: Collect the release files
         working-directory: src
         run: |
-          v="$V"
+          v=$(cat ../version)
           mkdir ../out
           git archive --prefix="dragonfruit-$v/" -o "../out/dragonfruit-$v.tar.gz" HEAD
           cp packaging/arch/dragonfruit/PKGBUILD ../out/PKGBUILD
@@ -63,7 +74,7 @@ jobs:
 
       - name: Make the release
         run: |
-          v="$V"
+          v=$(cat version)
           api="$GITHUB_SERVER_URL/api/v1/repos/$GITHUB_REPOSITORY"
           body="Install from the packaging recipes for $v:
 
