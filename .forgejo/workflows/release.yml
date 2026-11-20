@@ -1,42 +1,60 @@
-# Push a tag like 0.2.0 and this makes the Codeberg release.
+# Make a release: Actions > release > Run workflow, type the version (0.2.0).
 #
-# Before tagging, in one commit:
-#   meson.build                    version : '0.2.0'
-#   packaging/arch/dragonfruit/PKGBUILD   pkgver=0.2.0, pkgrel=1
-#   packaging/gentoo/gui-wm/dragonfruit/dragonfruit-0.2.0.ebuild  (copy of 9999)
-# Nix and Guix need nothing: they build the tree they sit in, so the release
-# notes point them at the tag.
+# CI then, on the tip of the dragonfruit branch:
+#   bumps meson.build to the version and the Arch PKGBUILD's pkgver,
+#   writes packaging/gentoo/gui-wm/dragonfruit/dragonfruit-<version>.ebuild
+#   (a copy of 9999, which builds the tag when PV is not 9999),
+#   commits "release <version>", tags it, pushes both,
+#   and makes the Codeberg release with the tarball, PKGBUILD and ebuild.
+# Nix and Guix read the version from the tagged meson.build, so they need
+# nothing more; the release notes point them at the tag.
 #
-# Enable Actions in Settings > Units > Overview. If the release call returns
-# 403, add a repository secret RELEASE_TOKEN (access token, repository write).
+# Enable Actions in Settings > Units > Overview, and add a repository secret
+# RELEASE_TOKEN (access token, repository write) so CI can push and release.
 name: release
 
 on:
-  push:
-    tags: ['[0-9]*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 0.2.0'
+        required: true
+
+env:
+  V: ${{ inputs.version }}
+  TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
 jobs:
   release:
     runs-on: codeberg-tiny
     steps:
-      - name: Check out the tag
+      - name: Check out the branch
         run: |
-          git clone --depth 1 --branch "$GITHUB_REF_NAME" \
-            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" src
+          fail() { echo "::error::$1"; exit 1; }
+          echo "$V" | grep -qxE '[0-9]+\.[0-9]+\.[0-9]+' || fail "version must look like 0.2.0, got '$V'"
+          url="$(echo "$GITHUB_SERVER_URL" | sed "s#://#://ci:$TOKEN@#")/$GITHUB_REPOSITORY.git"
+          git ls-remote --exit-code --tags "$url" "refs/tags/$V" >/dev/null && fail "tag $V already exists"
+          git clone --depth 1 --branch dragonfruit "$url" src
 
-      - name: Check the recipes match the tag
+      - name: Bump the version, commit, tag and push
         working-directory: src
         run: |
-          v="$GITHUB_REF_NAME"
-          fail() { echo "::error::$1"; exit 1; }
-          grep -q "^  version : '$v'," meson.build || fail "meson.build version is not $v"
-          grep -qx "pkgver=$v" packaging/arch/dragonfruit/PKGBUILD || fail "arch pkgver is not $v"
-          test -f "packaging/gentoo/gui-wm/dragonfruit/dragonfruit-$v.ebuild" || fail "no gentoo ebuild for $v"
+          sed -i "s/^  version : '[^']*',/  version : '$V',/" meson.build
+          sed -i -e "s/^pkgver=.*/pkgver=$V/" -e "s/^pkgrel=.*/pkgrel=1/" packaging/arch/dragonfruit/PKGBUILD
+          e=packaging/gentoo/gui-wm/dragonfruit
+          cp "$e/dragonfruit-9999.ebuild" "$e/dragonfruit-$V.ebuild"
+          grep -q "^  version : '$V'," meson.build
+          export GIT_AUTHOR_NAME="$GITHUB_ACTOR" GIT_COMMITTER_NAME="$GITHUB_ACTOR"
+          export GIT_AUTHOR_EMAIL="$GITHUB_ACTOR@noreply.codeberg.org" GIT_COMMITTER_EMAIL="$GITHUB_ACTOR@noreply.codeberg.org"
+          git add -A
+          git commit -qm "release $V"
+          git tag -a "$V" -m "Dragonfruit $V"
+          git push origin HEAD:dragonfruit "refs/tags/$V"
 
       - name: Collect the release files
         working-directory: src
         run: |
-          v="$GITHUB_REF_NAME"
+          v="$V"
           mkdir ../out
           git archive --prefix="dragonfruit-$v/" -o "../out/dragonfruit-$v.tar.gz" HEAD
           cp packaging/arch/dragonfruit/PKGBUILD ../out/PKGBUILD
@@ -44,10 +62,8 @@ jobs:
           cd ../out && sha256sum * > SHA256SUMS
 
       - name: Make the release
-        env:
-          TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
-          v="$GITHUB_REF_NAME"
+          v="$V"
           api="$GITHUB_SERVER_URL/api/v1/repos/$GITHUB_REPOSITORY"
           body="Install from the packaging recipes for $v:
 
