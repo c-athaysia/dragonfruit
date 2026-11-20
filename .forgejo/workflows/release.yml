@@ -23,15 +23,14 @@ on:
         required: false
         default: ''
 
-env:
-  INPUT_VERSION: ${{ inputs.version }}
-  TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
-
 jobs:
   release:
     runs-on: codeberg-tiny
     steps:
       - name: Check out the branch
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           fail() { echo "::error::$1"; exit 1; }
           url="$(echo "$GITHUB_SERVER_URL" | sed "s#://#://ci:$TOKEN@#")/$GITHUB_REPOSITORY.git"
@@ -73,6 +72,8 @@ jobs:
           cd ../out && sha256sum * > SHA256SUMS
 
       - name: Make the release
+        env:
+          TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           v=$(cat version)
           api="$GITHUB_SERVER_URL/api/v1/repos/$GITHUB_REPOSITORY"
