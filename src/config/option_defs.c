@@ -82,6 +82,9 @@ static bool parse_canvas_box_key(Config *config, const char *key,
 	if (!drop && strcmp(k, "window_color") == 0)
 		color = config->canvas_select_window_color,
 		color_set = &config->canvas_select_window_color_set;
+	else if (!drop && strcmp(k, "window_inner_color") == 0)
+		color = config->canvas_select_window_inner_color,
+		color_set = &config->canvas_select_window_inner_color_set;
 	else if (!drop && strcmp(k, "color") == 0)
 		color = st->fill, color_set = &st->fill_set;
 	else if (strcmp(k, "border_color") == 0)
@@ -2564,6 +2567,7 @@ void set_value_default() {
 	config.canvas_select_clear_on_click = 1;
 	config.canvas_select_mode = CANVAS_SELECT_INTERSECT;
 	config.canvas_select_window_color_set = false;
+	config.canvas_select_window_inner_color_set = false;
 	config.canvas_snap_no_overlap = 0;
 	config.canvas_resize_snap = CANVAS_RESIZE_SNAP_MOVE;
 	config.canvas_precompute = 1;

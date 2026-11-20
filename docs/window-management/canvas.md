@@ -44,6 +44,7 @@ doesn't work here as it stands, that's a bug, so please report it.
 | `canvas_select_mode` | `intersect` | Select windows the band touches (`intersect`) or wholly contains (`contain`) |
 | `canvas_select_clear_on_click` | `1` | A plain click (no drag) on empty canvas clears the selection |
 | `canvas_select_window_color` | band border, else `urgent_color` | Border colour of selected windows |
+| `canvas_select_window_inner_color` | inner ring colour as usual | Inner ring of selected windows when `inner_border_px` is set |
 | `canvas_select_color` | `drop_color` | Fill of the rubber band |
 | `canvas_select_border_width` / `_border_color` / `_inner_border_color` / `_border_radius` / `_shadow` / `_shadow_size` / `_shadow_blur` / `_shadow_color` / `_shadow_position_x` / `_shadow_position_y` / `_blur` | as `canvas_drop_*` | Rubber band styling, the same options as the drop box |
 | `canvas_drop_border_width` | `0` | Border around the snap preview box (follows zoom) |

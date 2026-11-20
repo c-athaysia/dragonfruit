@@ -496,6 +496,8 @@ typedef struct {
 	int32_t canvas_select_clear_on_click;
 	float canvas_select_window_color[4];
 	bool canvas_select_window_color_set;
+	float canvas_select_window_inner_color[4];
+	bool canvas_select_window_inner_color_set;
 	int32_t canvas_snap_no_overlap;
 	int32_t canvas_resize_snap; // CANVAS_RESIZE_SNAP_*
 	int32_t canvas_precompute;

@@ -1373,6 +1373,8 @@ float *get_border_color(Client *c) {
 // each one unset follows the outer ring so urgent, selected and the rest
 // still show there
 float *get_inner_border_color(Client *c) {
+	if (c->canvas_selected && config.canvas_select_window_inner_color_set)
+		return config.canvas_select_window_inner_color;
 	bool focused = server.selected_monitor &&
 				   c->mon == server.selected_monitor &&
 				   c == server.selected_monitor->sel;
