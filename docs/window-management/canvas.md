@@ -28,6 +28,8 @@ doesn't work here as it stands, that's a bug, so please report it.
 | `canvas_placement` | `center` | Where a new window lands. `center`, or one of the `auto` modes, which grow the window cluster's perimeter as little as possible: `auto-focused` (beside the focused window; `auto` is the same), `auto-recent` (beside the window you were working in, so a burst of new windows gathers around it), `auto-compact` (anywhere on the cluster, looking one window ahead) |
 | `canvas_follow_focus` | `0` | Pan the camera to whatever takes focus |
 | `canvas_follow_focus_delay` | `0` | Debounce for the above, in ms |
+| `canvas_follow_new_windows` | `0` | Pan the camera to a newly opened window, even with `canvas_follow_focus` off |
+| `canvas_focus_dir_from` | `focused` | Where `canvas_focus_dir` steps from: `focused` (the focused window) or `center` (the window nearest the middle of the view, so after panning away the keys move from what you're looking at) |
 | `canvas_zoom_step` | `112` | Percent per zoom notch |
 | `canvas_snap_no_overlap` | `0` | Refuse a snap that would land on top of another window |
 | `canvas_resize_snap` | `move` | What releasing a resize near a neighbour does: `move` the window to rest beside it, snap only the dragged `edge`s, or `off`. The highlight box previews it |

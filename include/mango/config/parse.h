@@ -477,6 +477,8 @@ typedef struct {
 	int32_t canvas_placement;
 	int32_t canvas_follow_focus;
 	int32_t canvas_follow_focus_delay;
+	int32_t canvas_follow_new_windows; // pan to new windows, follow focus or not
+	int32_t canvas_focus_dir_from;	   // 0 focused window, 1 centermost window
 	double canvas_zoom_step;
 	// snap preview and select band boxes - styled like a window
 	canvas_box_style canvas_drop, canvas_select;

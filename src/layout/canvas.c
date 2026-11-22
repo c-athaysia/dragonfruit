@@ -1133,6 +1133,8 @@ static void canvas_jump_label_place(Client *c) {
 	wlr_scene_node_raise_to_top(label);
 }
 
+static bool canvas_follow_fly(Client *c);
+
 void canvas(Monitor *m) {
 	Client *c = NULL;
 	struct wlr_box geom;
@@ -1145,6 +1147,7 @@ void canvas(Monitor *m) {
 	if (m->canvas_overview || m->ov_blend > 0.0)
 		canvas_overview_layout(m);
 
+	Client *seeded = NULL; // newest window placed this pass
 	wl_list_for_each(c, &server.clients, link) {
 		if (!VISIBLEON(c, m) || !ISFAKETILED(c))
 			continue;
@@ -1155,8 +1158,10 @@ void canvas(Monitor *m) {
 		if (c->isfullscreen || c->ismaximizescreen)
 			continue;
 
-		if (!c->canvas_placed)
+		if (!c->canvas_placed) {
 			canvas_seed_client(c, m);
+			seeded = c;
+		}
 
 		double z = m->zoom > 0.0 ? m->zoom : 1.0;
 
@@ -1220,6 +1225,10 @@ void canvas(Monitor *m) {
 	// mangos grid overview arranges with its own layout so this never sees it
 	if (m->is_jump_mode && !m->canvas_overview)
 		finish_jump_mode(m);
+	// canvas_follow_new_windows pans to a window that just landed even with
+	// canvas_follow_focus off, canvas_follow_focus already covers it when on
+	if (seeded && config.canvas_follow_new_windows && !m->canvas_overview)
+		canvas_follow_fly(seeded);
 	canvas_precompute_note(m);
 }
 
@@ -1780,6 +1789,22 @@ int32_t canvas_focus_dir(const Arg *arg) {
 	canvas_viewport(m, &vx, &vy, &vw, &vh);
 
 	Client *cur = m->sel;
+	// canvas_focus_dir_from=center steps from the window nearest the view
+	// middle, so a camera panned away from focus navigates from what you see
+	if (config.canvas_focus_dir_from) {
+		double mx = vx + vw / 2.0, my = vy + vh / 2.0, bd = INFINITY;
+		Client *c = NULL;
+		cur = NULL;
+		wl_list_for_each(c, &server.clients, link) {
+			if (!VISIBLEON(c, m) || !ISFAKETILED(c) || !c->canvas_placed ||
+				c->isminimized || !canvas_on_plane(c))
+				continue;
+			double ox = c->canvas_geom.x + c->canvas_geom.width / 2.0 - mx;
+			double oy = c->canvas_geom.y + c->canvas_geom.height / 2.0 - my;
+			if (ox * ox + oy * oy < bd)
+				bd = ox * ox + oy * oy, cur = c;
+		}
+	}
 	double rx, ry;
 	if (canvas_on_plane(cur) && VISIBLEON(cur, m)) {
 		rx = cur->canvas_geom.x + cur->canvas_geom.width / 2.0;

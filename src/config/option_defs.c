@@ -940,6 +940,10 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		config->canvas_zoom_step = atof(value);
 	} else if (strcmp(key, "canvas_follow_focus") == 0) {
 		config->canvas_follow_focus = atoi(value);
+	} else if (strcmp(key, "canvas_follow_new_windows") == 0) {
+		config->canvas_follow_new_windows = CLAMP_INT(atoi(value), 0, 1);
+	} else if (strcmp(key, "canvas_focus_dir_from") == 0) {
+		config->canvas_focus_dir_from = strcmp(value, "center") == 0;
 	} else if (strcmp(key, "canvas_follow_focus_delay") == 0) {
 		// ms the pointer sits on a window before the camera follows it - 0 is
 		// instant
@@ -2545,6 +2549,8 @@ void set_value_default() {
 	config.canvas_placement = CANVAS_PLACE_CENTER;
 	config.canvas_follow_focus = 0;
 	config.canvas_follow_focus_delay = 0;
+	config.canvas_follow_new_windows = 0;
+	config.canvas_focus_dir_from = 0;
 	for (int b = 0; b < 2; b++) {
 		canvas_box_style *st = b ? &config.canvas_select : &config.canvas_drop;
 		memset(st, 0, sizeof(*st));
