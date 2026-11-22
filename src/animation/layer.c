@@ -452,10 +452,13 @@ void layer_animation_next_tick(LayerSurface *l) {
 	double opacity_eased_progress =
 		find_animation_curve_at(animation_passed, OPAFADEIN);
 
-	double opacity = MANGO_MIN(config.fadein_begin_opacity +
-								   opacity_eased_progress *
-									   (1.0 - config.fadein_begin_opacity),
-							   1.0f);
+	// A pure fade starts from fully transparent; other types keep the
+	// configured partial fade so their motion stays visible.
+	double begin = layer_open_animation_type(l) == ANIM_TYPE_FADE
+					   ? 0.0
+					   : config.fadein_begin_opacity;
+	double opacity =
+		MANGO_MIN(begin + opacity_eased_progress * (1.0 - begin), 1.0f);
 
 	if (config.animation_fade_in) {
 		if (config.blur && !l->no_blur && !layer_blur_uses_wallpaper(l)) {
@@ -639,10 +642,15 @@ void layer_set_pending_state(LayerSurface *l) {
 	} else {
 		l->animainit_geom = l->animation.current;
 	}
+	// Background/bottom layers stay still unless a layer_rule asks for an
+	// open animation (e.g. a wallpaper that fades in at login).
+	bool low_layer = l->layer_surface->current.layer ==
+						 ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND ||
+					 l->layer_surface->current.layer ==
+						 ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM;
 	if (!config.animations || !config.layer_animations || l->no_animation ||
-		l->layer_surface->current.layer ==
-			ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND ||
-		l->layer_surface->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM) {
+		(low_layer && (l->animation.action != OPEN ||
+					   l->animation_type_open == ANIM_TYPE_UNSET))) {
 		l->animation.should_animate = false;
 	} else {
 		l->animation.should_animate = true;
@@ -688,7 +696,12 @@ bool layer_draw_frame(LayerSurface *l) {
 
 	if (l->layer_surface->current.layer != ZWLR_LAYER_SHELL_V1_LAYER_TOP &&
 		l->layer_surface->current.layer != ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY) {
-		return false;
+		// Low layers only animate their rule-enabled open (see
+		// layer_set_pending_state); no shield or shadow for them.
+		if (!l->animation.running)
+			return false;
+		layer_animation_next_tick(l);
+		return true;
 	}
 
 	if (config.animations && config.layer_animations && l->animation.running &&
