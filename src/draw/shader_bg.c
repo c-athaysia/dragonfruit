@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wlr/interfaces/wlr_buffer.h>
 #include <wlr/render/allocator.h>
 #include <wlr/render/drm_format_set.h>
 #include <wlr/render/pass.h>
@@ -216,14 +217,83 @@ void shader_bg_mark_dirty(void) {
 	}
 }
 
-static bool ensure_buffer(Monitor *m, int32_t w, int32_t h) {
-	if (m->bg_buf && m->bg_w == w && m->bg_h == h)
-		return true;
+// the scene gets a plain cpu copy of the shader output, never a gpu buffer
+// sampling a gbm buffer we also render into leaked a buffer per redraw and
+// showed nothing on the nvidia blob
+// glReadPixels stalls once per redraw (camera moves only), zero
+// copy needs scenefx to wrap a raw gl texture
+struct cpu_buffer {
+	struct wlr_buffer base;
+	uint8_t *data;
+};
 
-	if (m->bg_buf) {
-		wlr_buffer_drop(m->bg_buf);
-		m->bg_buf = NULL;
+static void cpu_buffer_destroy(struct wlr_buffer *wlr_buffer) {
+	struct cpu_buffer *buf = wl_container_of(wlr_buffer, buf, base);
+	free(buf->data);
+	free(buf);
+}
+
+static bool cpu_buffer_begin(struct wlr_buffer *wlr_buffer, uint32_t flags,
+							 void **data, uint32_t *format, size_t *stride) {
+	struct cpu_buffer *buf = wl_container_of(wlr_buffer, buf, base);
+	if (flags & WLR_BUFFER_DATA_PTR_ACCESS_WRITE)
+		return false;
+	*data = buf->data;
+	*format = DRM_FORMAT_ABGR8888; // GL_RGBA bytes
+	*stride = (size_t)wlr_buffer->width * 4;
+	return true;
+}
+
+static void cpu_buffer_end(struct wlr_buffer *wlr_buffer) {}
+
+static const struct wlr_buffer_impl cpu_buffer_impl = {
+	.destroy = cpu_buffer_destroy,
+	.begin_data_ptr_access = cpu_buffer_begin,
+	.end_data_ptr_access = cpu_buffer_end,
+};
+
+// needs a current context so only call inside a pass
+static void gl_free_target(Monitor *m) {
+	if (m->bg_fbo)
+		glDeleteFramebuffers(1, &m->bg_fbo);
+	if (m->bg_tex)
+		glDeleteTextures(1, &m->bg_tex);
+	m->bg_fbo = m->bg_tex = 0;
+	m->bg_w = m->bg_h = 0;
+}
+
+// needs a current context so only call inside a pass
+static bool gl_ensure_target(Monitor *m, int32_t w, int32_t h) {
+	if (m->bg_fbo && m->bg_w == w && m->bg_h == h)
+		return true;
+	gl_free_target(m);
+	glGenTextures(1, &m->bg_tex);
+	glBindTexture(GL_TEXTURE_2D, m->bg_tex);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+				 NULL);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glGenFramebuffers(1, &m->bg_fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, m->bg_fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+						   m->bg_tex, 0);
+	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+		mango_error(true, WLR_ERROR, "shader_bg: %dx%d framebuffer incomplete",
+					w, h);
+		gl_free_target(m);
+		gl_teardown(); // turn the shader off instead of retrying every frame
+		return false;
 	}
+	m->bg_w = w;
+	m->bg_h = h;
+	m->bg_dirty = true;
+	return true;
+}
+
+// bg_buf is only a 1x1 handle so a render pass makes the gl context current
+// scenefx has no other way to get it, nothing is drawn into it or shown
+static bool ensure_buffer(Monitor *m) {
+	if (m->bg_buf)
+		return true;
 
 	// wlroots 0.20 has no way to ask for render formats so the format is
 	// hardcoded modifier list cant be empty or the gbm allocator asserts len >
@@ -237,14 +307,11 @@ static bool ensure_buffer(Monitor *m, int32_t w, int32_t h) {
 		.modifiers = mods,
 	};
 
-	m->bg_buf = wlr_allocator_create_buffer(server.allocator, w, h, &fmt);
+	m->bg_buf = wlr_allocator_create_buffer(server.allocator, 1, 1, &fmt);
 	if (!m->bg_buf) {
-		mango_error(true, WLR_ERROR, "shader_bg: could not allocate a %dx%d buffer", w, h);
+		mango_error(true, WLR_ERROR, "shader_bg: could not allocate a context buffer");
 		return false;
 	}
-	m->bg_w = w;
-	m->bg_h = h;
-	m->bg_dirty = true;
 	return true;
 }
 
@@ -257,7 +324,6 @@ static void release_buffer(Monitor *m) {
 		wlr_buffer_drop(m->bg_buf);
 		m->bg_buf = NULL;
 	}
-	m->bg_w = m->bg_h = 0;
 }
 
 bool shader_bg_update(Monitor *m) {
@@ -280,12 +346,12 @@ bool shader_bg_update(Monitor *m) {
 
 	bool cam_moved = m->bg_cam_x != m->cam_x || m->bg_cam_y != m->cam_y ||
 					 m->bg_zoom != m->zoom;
-	bool need = m->bg_dirty || cam_moved || !m->bg_buf || m->bg_w != w ||
+	bool need = m->bg_dirty || cam_moved || !m->bg_fbo || m->bg_w != w ||
 				m->bg_h != h || pending_valid;
 	if (!need)
 		return false;
 
-	if (!ensure_buffer(m, w, h))
+	if (!ensure_buffer(m))
 		return false;
 
 	// the pass makes the gl context current and binds this buffers fbo
@@ -297,9 +363,11 @@ bool shader_bg_update(Monitor *m) {
 
 	gl_build_if_pending();
 
-	if (gl_ready && program) {
-		GLuint fbo = fx_renderer_get_buffer_fbo(server.renderer, m->bg_buf);
-		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	struct cpu_buffer *out = NULL;
+	if (gl_ready && program && gl_ensure_target(m, w, h) &&
+		(out = calloc(1, sizeof(*out))) &&
+		(out->data = malloc((size_t)w * h * 4))) {
+		glBindFramebuffer(GL_FRAMEBUFFER, m->bg_fbo);
 		glViewport(0, 0, w, h);
 		glDisable(GL_BLEND);
 		glClearColor(0.f, 0.f, 0.f, 0.f);
@@ -320,7 +388,21 @@ bool shader_bg_update(Monitor *m) {
 		glDisableVertexAttribArray((GLuint)loc_pos);
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 		glUseProgram(0);
+
+		// gl row 0 is the bottom, it was the first row of the old gpu buffer
+		// too so orientation matches what the shaders were written against
+		glPixelStorei(GL_PACK_ALIGNMENT, 4);
+		glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, out->data);
+		glBindFramebuffer(GL_FRAMEBUFFER,
+						  fx_renderer_get_buffer_fbo(server.renderer, m->bg_buf));
+		wlr_buffer_init(&out->base, &cpu_buffer_impl, w, h);
+	} else if (out) {
+		free(out);
+		out = NULL;
 	}
+
+	if (!gl_ready || !program)
+		gl_free_target(m);
 
 	wlr_render_pass_submit(pass);
 
@@ -332,10 +414,15 @@ bool shader_bg_update(Monitor *m) {
 		return false;
 	}
 
+	if (!out)
+		return false;
+
 	if (!m->bg_node) {
 		m->bg_node = wlr_scene_buffer_create(&server.scene->tree, NULL);
-		if (!m->bg_node)
+		if (!m->bg_node) {
+			wlr_buffer_drop(&out->base);
 			return false;
+		}
 		// goes above the wallpaper layer and below the rest
 		// these shaders are see through so they have to draw over the wallpaper
 		// under LyrBg swaybg would just cover it
@@ -345,7 +432,8 @@ bool shader_bg_update(Monitor *m) {
 								   &server.layers_wrap[LyrBg]->node);
 	}
 
-	wlr_scene_buffer_set_buffer_with_damage(m->bg_node, m->bg_buf, NULL);
+	wlr_scene_buffer_set_buffer_with_damage(m->bg_node, &out->base, NULL);
+	wlr_buffer_drop(&out->base); // the scene holds its own lock
 	wlr_scene_buffer_set_dest_size(m->bg_node, w, h);
 	wlr_scene_node_set_position(&m->bg_node->node, m->m.x, m->m.y);
 	wlr_scene_node_set_enabled(&m->bg_node->node, true);
@@ -365,6 +453,13 @@ void shader_bg_finish_monitor(Monitor *m) {
 		m->bg_node = NULL;
 	}
 	if (m->bg_buf) {
+		// if no pass can start the gl names leak with the output
+		struct wlr_render_pass *pass =
+			wlr_renderer_begin_buffer_pass(server.renderer, m->bg_buf, NULL);
+		if (pass) {
+			gl_free_target(m);
+			wlr_render_pass_submit(pass);
+		}
 		wlr_buffer_drop(m->bg_buf);
 		m->bg_buf = NULL;
 	}

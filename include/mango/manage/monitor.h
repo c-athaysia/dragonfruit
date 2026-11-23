@@ -98,6 +98,8 @@ struct Monitor {
 	// camera moves or output resizes - see draw/shader_bg.c
 	struct wlr_scene_buffer *bg_node;
 	struct wlr_buffer *bg_buf;
+	// gl texture+fbo the shader draws into, read back to cpu for the scene
+	unsigned int bg_fbo, bg_tex;
 	int32_t bg_w, bg_h;
 	double bg_cam_x, bg_cam_y;
 	double bg_zoom;
