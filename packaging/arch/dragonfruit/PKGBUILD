@@ -5,7 +5,7 @@
 
 pkgname=dragonfruit
 _pkgname=dragonfruit
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc="An infinite-canvas Wayland compositor forked from Mango"
 arch=('x86_64' 'aarch64')
