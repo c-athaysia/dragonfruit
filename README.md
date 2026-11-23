@@ -12,6 +12,12 @@
 
 ---
 
+<video src="https://codeberg.org/central-lambda-group/dragonfruit/raw/branch/dragonfruit/docs/dragonfruit.mp4" controls muted width="100%"></video>
+
+[Watch the demo](docs/dragonfruit.mp4) if the player doesn't show.
+
+---
+
 Your windows should not be confined by the edge of your monitor. Your windows should not be confined by the rules of a tiling window manager. But they are.
 Dragonfruit fixes such problems beautifully. 
 
