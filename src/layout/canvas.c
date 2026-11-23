@@ -1792,7 +1792,11 @@ int32_t canvas_focus_dir(const Arg *arg) {
 	// canvas_focus_dir_from=center steps from the window nearest the view
 	// middle, so a camera panned away from focus navigates from what you see
 	if (config.canvas_focus_dir_from) {
+		// mid flight the view middle is where the camera is going, so quick
+		// presses step on from the window just picked not one passed on the way
 		double mx = vx + vw / 2.0, my = vy + vh / 2.0, bd = INFINITY;
+		if (m->zoom_animating)
+			mx = m->zoom_anchor_cx, my = m->zoom_anchor_cy;
 		Client *c = NULL;
 		cur = NULL;
 		wl_list_for_each(c, &server.clients, link) {
@@ -1846,8 +1850,11 @@ int32_t canvas_focus_dir(const Arg *arg) {
 	// follow focus may be off but a directional focus that leaves you on empty
 	// canvas did half the job so only fires when the target is off screen and
 	// windows already in view stay put
+	// except with canvas_focus_dir_from=center which steps from the window in
+	// the middle, so the target has to become that window or the next press
+	// starts from the old one
 	double l = vx, t = vy, r = l + vw, b = t + vh;
-	if (best->canvas_geom.x < l || best->canvas_geom.y < t ||
+	if (config.canvas_focus_dir_from || best->canvas_geom.x < l || best->canvas_geom.y < t ||
 		best->canvas_geom.x + best->canvas_geom.width > r ||
 		best->canvas_geom.y + best->canvas_geom.height > b)
 		canvas_fly_to(m, best->canvas_geom.x + best->canvas_geom.width / 2.0,

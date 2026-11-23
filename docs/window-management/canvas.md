@@ -29,7 +29,7 @@ doesn't work here as it stands, that's a bug, so please report it.
 | `canvas_follow_focus` | `0` | Pan the camera to whatever takes focus |
 | `canvas_follow_focus_delay` | `0` | Debounce for the above, in ms |
 | `canvas_follow_new_windows` | `0` | Pan the camera to a newly opened window, even with `canvas_follow_focus` off |
-| `canvas_focus_dir_from` | `focused` | Where `canvas_focus_dir` steps from: `focused` (the focused window) or `center` (the window nearest the middle of the view, so after panning away the keys move from what you're looking at) |
+| `canvas_focus_dir_from` | `focused` | Where `canvas_focus_dir` steps from: `focused` (the focused window) or `center` (the window nearest the middle of the view, so after panning away the keys move from what you're looking at; it centres the camera on each window it moves to, so the next press starts there) |
 | `canvas_zoom_step` | `112` | Percent per zoom notch |
 | `canvas_snap_no_overlap` | `0` | Refuse a snap that would land on top of another window |
 | `canvas_resize_snap` | `move` | What releasing a resize near a neighbour does: `move` the window to rest beside it, snap only the dragged `edge`s, or `off`. The highlight box previews it |
