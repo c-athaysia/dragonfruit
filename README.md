@@ -14,7 +14,7 @@
 
 <video src="https://codeberg.org/central-lambda-group/dragonfruit/raw/branch/dragonfruit/docs/dragonfruit.mp4" controls muted width="100%"></video>
 
-[Watch the demo](docs/dragonfruit.mp4) if the player doesn't show.
+[Watch the demo](docs/dragonfruit.mp4) - rice by [cathaysia](https://codeberg.org/cathaysia)
 
 ---
 
