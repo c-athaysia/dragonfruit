@@ -42,6 +42,8 @@ cjson_dep = dependency('libcjson')
 pangocairo_dep = dependency('pangocairo')
 # needed directly - draw/shader_bg.c does raw gles2 calls into the fbo scenefx gives back
 gles2_dep = dependency('glesv2')
+egl_dep = dependency('egl')
+gbm_dep = dependency('gbm')
 
 # stock background shaders - installed so canvas_shader=dots works without a path
 # $DRAGONFRUIT_SHADER_DIR overrides for a build tree
@@ -139,6 +141,8 @@ executable('dragonfruit',
     cjson_dep,
     pangocairo_dep,
     gles2_dep,
+    egl_dep,
+    gbm_dep,
     dependency('threads'),
   ],
   install : true,

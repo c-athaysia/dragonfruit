@@ -24,7 +24,7 @@ doesn't work here as it stands, that's a bug, so please report it.
 
 | Key | Default | What it does |
 |---|---|---|
-| `canvas_shader` | *(none)* | `grain`, `dots`, `plus`, or a path to your own `.glsl` |
+| `canvas_shader` | *(none)* | `grain`, `dots`, `plus`, or a path to your own `.glsl`. On NVIDIA's proprietary driver it is drawn through a private context and a CPU copy, which avoids a driver leak. Set `DRAGONFRUIT_SHADER_COPY=0` or `1` in the environment to force either path |
 | `canvas_placement` | `center` | Where a new window lands. `center`, or one of the `auto` modes, which grow the window cluster's perimeter as little as possible: `auto-focused` (beside the focused window; `auto` is the same), `auto-recent` (beside the window you were working in, so a burst of new windows gathers around it), `auto-compact` (anywhere on the cluster, looking one window ahead) |
 | `canvas_follow_focus` | `0` | Pan the camera to whatever takes focus |
 | `canvas_follow_focus_delay` | `0` | Debounce for the above, in ms |
