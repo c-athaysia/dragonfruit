@@ -5,6 +5,7 @@
 #include "mango/manage/client.h"
 #include "mango/manage/layer.h"
 #include "mango/manage/monitor.h"
+#include "mango/workspace_overview/workspace_overview.h"
 #include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/types/wlr_output.h>
@@ -535,9 +536,14 @@ void init_fadeout_layers(LayerSurface *l) {
 	struct wlr_box usable_area;
 	get_layer_area_bound(l, &usable_area);
 
+	struct wlr_scene_tree *fadeout_parent =
+		workspace_overview_layer_fadeout_parent(l);
+	if (!fadeout_parent)
+		fadeout_parent = server.layers[LyrFadeOut];
+
 	wlr_scene_node_set_enabled(&l->scene->node, true);
 	fadeout_layer->scene =
-		wlr_scene_tree_snapshot(&l->scene->node, server.layers[LyrFadeOut]);
+		wlr_scene_tree_snapshot(&l->scene->node, fadeout_parent);
 	wlr_scene_node_set_enabled(&l->scene->node, false);
 
 	if (!fadeout_layer->scene) {
@@ -545,7 +551,8 @@ void init_fadeout_layers(LayerSurface *l) {
 		return;
 	}
 
-	fadeout_layer->animation.duration = config.animation_duration_close;
+	fadeout_layer->animation.duration =
+		animation_duration_for_type(CLOSE, config.animation_duration_close);
 	fadeout_layer->geom = fadeout_layer->current =
 		fadeout_layer->animainit_geom = fadeout_layer->animation.initial =
 			l->animation.current;

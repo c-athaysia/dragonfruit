@@ -20,10 +20,13 @@
 #include "mango/layout/dwindle.h"
 #include "mango/layout/layout.h"
 #include "mango/layout/scroll.h"
+#include "mango/layout/tag_ratio.h"
 #include "mango/manage/client.h"
 #include "mango/manage/layer.h"
 #include "mango/manage/misc.h"
+#include "mango/manage/tab.h"
 #include "mango/manage/xwayland_primary.h"
+#include "mango/workspace_overview/workspace_overview.h"
 #include <fcntl.h>
 #include <scenefx/render/fx_renderer/fx_renderer.h>
 #include <scenefx/types/wlr_scene.h>
@@ -237,9 +240,10 @@ void monitor_copy_tag_layout(Monitor *target, const Monitor *source,
 	dst->scroller_ignore_proportion_single[tag] =
 		src->scroller_ignore_proportion_single[tag];
 	dst->ltidxs[tag] = src->ltidxs[tag];
+	tag_ratio_state_copy(target, tag, source, tag);
 
-	/* Layout trees and scroller nodes are monitor-owned and rebuilt on the
-	 * target after the clients have moved. */
+	/* Layout trees, scroller nodes, and tab chains are monitor-owned and
+	 * rebuilt on the target after the clients have moved. */
 }
 
 // Gets the tagmask of the first tag in tags.
@@ -439,7 +443,6 @@ bool mango_scene_output_commit(struct wlr_scene_output *scene_output,
 		state->tearing_page_flip = false;
 		committed = wlr_output_commit_state(wlr_output, state);
 	}
-
 	if (committed) {
 		if (state == &m->pending) {
 			wlr_output_state_finish(&m->pending);
@@ -729,6 +732,7 @@ void handle_new_output(struct wl_listener *listener, void *data) {
 	m->special_gappiv = config.special_gappiv;
 	m->special_gappoh = config.special_gappoh;
 	m->special_gappov = config.special_gappov;
+	m->workspace_overview_scope = ALL_WORKSPACE;
 	m->sel = NULL;
 	m->is_in_hotarea = 0;
 	m->m.x = INT32_MAX;
@@ -892,6 +896,11 @@ void handle_new_output(struct wl_listener *listener, void *data) {
 	parse_tagrule(m);
 
 	if (config.blur) {
+		/*
+		 * LyrBlur is above root_bg and LyrBg, so the optimized cache contains
+		 * the complete output background: root color, wallpaper side bars, and
+		 * the background layer surfaces.
+		 */
 		m->blur = wlr_scene_optimized_blur_create(&server.scene->tree, 0, 0);
 		wlr_scene_node_set_position(&m->blur->node, m->m.x, m->m.y);
 		wlr_scene_node_reparent(&m->blur->node, server.layers[LyrBlur]);
@@ -931,6 +940,14 @@ void handle_output_destroy(struct wl_listener *listener, void *data) {
 
 	m->iscleanuping = true;
 
+	/* Disconnect the output from the scene before restoring visibility for
+	 * workspace overview. Otherwise, revealing clients can send enter events
+	 * to an output that is already being destroyed. */
+	wlr_scene_output_destroy(m->scene_output);
+	m->scene_output = NULL;
+
+	workspace_overview_monitor_destroy(m);
+
 	Client *c, *ctmp;
 	wl_list_for_each_safe(c, ctmp, &server.fadeout_clients, fadeout_link) {
 		if (c->mon != m) {
@@ -968,7 +985,6 @@ void handle_output_destroy(struct wl_listener *listener, void *data) {
 		handle_session_lock_surface_destroy(&m->destroy_lock_surface, NULL);
 	m->wlr_output->data = NULL;
 
-	wlr_scene_output_destroy(m->scene_output);
 	wlr_output_layout_remove(server.output_layout, m->wlr_output);
 
 	monitor_close(m);
@@ -990,6 +1006,8 @@ void handle_output_destroy(struct wl_listener *listener, void *data) {
 
 	cleanup_monitor_dwindle(m);
 	cleanup_monitor_scroller(m);
+	cleanup_monitor_tab(m);
+	cleanup_monitor_tag_ratio_states(m);
 
 	wlr_color_transform_unref(m->icc_transform);
 	m->icc_transform = NULL;
@@ -1264,6 +1282,11 @@ void handle_output_layout_change(struct wl_listener *listener, void *data) {
 	 * it's at the wrong position after all. */
 	wlr_cursor_move(server.cursor, NULL, 0, 0);
 
+	wl_list_for_each(m, &server.monitors, link) {
+		if (m->wlr_output->enabled)
+			workspace_overview_monitor_changed(m);
+	}
+
 	wlr_output_manager_v1_set_configuration(server.output_manager,
 											output_config);
 
@@ -1438,7 +1461,6 @@ void handle_output_frame(struct wl_listener *listener, void *data) {
 			need_more_frames = layer_draw_frame(l) || need_more_frames;
 		}
 	}
-
 	wl_list_for_each_safe(c, tmp, &server.fadeout_clients, fadeout_link) {
 		need_more_frames = client_draw_fadeout_frame(c) || need_more_frames;
 	}
@@ -1446,7 +1468,6 @@ void handle_output_frame(struct wl_listener *listener, void *data) {
 	wl_list_for_each_safe(l, tmpl, &server.fadeout_layers, fadeout_link) {
 		need_more_frames = layer_draw_fadeout_frame(l) || need_more_frames;
 	}
-
 	wl_list_for_each(c, &server.clients, link) {
 		need_more_frames = client_draw_frame(c) || need_more_frames;
 
@@ -1458,6 +1479,8 @@ void handle_output_frame(struct wl_listener *listener, void *data) {
 			client_is_rendered_on_mon(c, m))
 			resizing_on_this_mon = true;
 	}
+	if (m->is_ws_overview)
+		workspace_overview_prepare_output_frame(m);
 
 	if (!config.animations && !server.grab_client && !need_more_frames &&
 		resizing_on_this_mon) {

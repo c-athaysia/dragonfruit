@@ -21,6 +21,7 @@
 #include "mango/manage/monitor.h"
 #include "mango/manage/tab.h"
 #include "mango/switcher/switcher.h"
+#include "mango/workspace_overview/workspace_overview.h"
 #include <scenefx/types/wlr_scene.h>
 #include <wlr/backend/libinput.h>
 #include <wlr/types/wlr_cursor.h>
@@ -41,6 +42,33 @@
 #include <wlr/xcursor.h>
 
 static struct LastCursor last_cursor;
+static bool wsov_direct_layer_pointer_pressed;
+
+static bool pointer_wsov_direct_layer_at(double x, double y,
+										 struct wlr_surface **surface,
+										 double *sx, double *sy) {
+	LayerSurface *layer = NULL;
+	struct wlr_surface *hit_surface = NULL;
+	double hit_x = 0, hit_y = 0;
+
+	if (!workspace_overview_is_active())
+		return false;
+
+	node_at_point(x, y, &hit_surface, NULL, &layer, NULL, &hit_x, &hit_y);
+	if (!layer || !hit_surface ||
+		!workspace_overview_is_active_on(layer->mon) ||
+		layer->layer_surface->current.layer < ZWLR_LAYER_SHELL_V1_LAYER_TOP) {
+		return false;
+	}
+
+	if (surface)
+		*surface = hit_surface;
+	if (sx)
+		*sx = hit_x;
+	if (sy)
+		*sy = hit_y;
+	return true;
+}
 
 static double pointer_surface_scale(Client *c) {
 #ifdef XWAYLAND
@@ -213,6 +241,29 @@ void pointer_check_confine_client(void) {
 void pointer_client_destroyed(Client *c) {
 	if (confine_pointer_last == c) {
 		confine_pointer_last = NULL;
+	}
+}
+
+void pointer_client_replaced(Client *old, Client *new) {
+	if (!old || !new || old == new)
+		return;
+
+	if (server.grab_client == old)
+		server.grab_client = new;
+
+	if (server.drop_client == old) {
+		bool draw = old->enable_drop_area_draw;
+		old->enable_drop_area_draw = false;
+		new->enable_drop_area_draw = draw;
+		server.drop_client = new;
+	}
+
+	if (server.group_bar_drag_client == old)
+		server.group_bar_drag_client = new;
+
+	if (server.group_bar_hover && server.group_bar_hover == old->group_bar) {
+		mango_bar_decoration_set_close_hover(server.group_bar_hover, false);
+		server.group_bar_hover = NULL;
 	}
 }
 
@@ -419,6 +470,9 @@ handle_cursor_axis(struct wl_listener *listener, void *data) {
 	}
 
 	mods = keyboard_hard_modifiers();
+	if (CLEANMASK(mods) == 0 && workspace_overview_handle_axis(event)) {
+		return;
+	}
 
 	if (event->orientation == WL_POINTER_AXIS_VERTICAL_SCROLL)
 		adir = event->delta > 0 ? AxisDown : AxisUp;
@@ -435,20 +489,18 @@ handle_cursor_axis(struct wl_listener *listener, void *data) {
 			a->func) { // Wheel direction matches and a handler exists
 
 			keyboard_cancel_pending_release_bind();
-
 			if (event->time_msec - server.axis_apply_time >
 					config.axis_bind_apply_timeout ||
 				server.axis_apply_dir * event->delta < 0) {
 				a->func(&a->arg);
 				server.axis_apply_time = event->time_msec;
 				server.axis_apply_dir = event->delta > 0 ? 1 : -1;
-				return; // If matched, do not forward this scroll event to the
-						// client.
 			} else {
 				server.axis_apply_dir = event->delta > 0 ? 1 : -1;
 				server.axis_apply_time = event->time_msec;
-				return;
 			}
+			return; // If matched, do not forward this scroll event to the
+					// client.
 		}
 	}
 
@@ -1211,6 +1263,33 @@ static Client *group_bar_target_at(double x, double y, Client *ignore) {
 void pointer_process_motion(uint32_t time, struct wlr_input_device *device,
 							double dx, double dy, double dx_unaccel,
 							double dy_unaccel) {
+	if (workspace_overview_is_active()) {
+		if (time) {
+			wlr_relative_pointer_manager_v1_send_relative_motion(
+				server.relative_pointer_manager, server.seat,
+				(uint64_t)time * 1000, dx, dy, dx_unaccel, dy_unaccel);
+			wlr_cursor_move(server.cursor, device, dx, dy);
+			pointer_cursor_activity();
+			wlr_idle_notifier_v1_notify_activity(server.idle_notifier,
+												 server.seat);
+			struct wlr_surface *surface = NULL;
+			double sx = 0, sy = 0;
+			if (pointer_wsov_direct_layer_at(server.cursor->x, server.cursor->y,
+											 &surface, &sx, &sy)) {
+				pointer_focus(NULL, surface, sx, sy, time);
+				if (workspace_overview_pointer_is_pressed()) {
+					workspace_overview_handle_motion(server.cursor->x,
+													 server.cursor->y);
+				}
+			} else {
+				pointer_focus(NULL, NULL, 0, 0, time);
+				workspace_overview_handle_motion(server.cursor->x,
+												 server.cursor->y);
+			}
+		}
+		return;
+	}
+
 	double sx = 0, sy = 0, sx_confined, sy_confined;
 	Client *c = NULL, *w = NULL;
 	Client *closet_drop_client = NULL;
@@ -1724,9 +1803,7 @@ Client *find_closest_tiled_client(Client *c) {
 	return closest;
 }
 
-void pointer_place_drag_tile(Client *c) {
-	Client *closest = find_closest_tiled_client(c);
-
+void pointer_place_drag_tile_on(Client *c, Client *closest) {
 	if (closest && closest->mon) {
 		const Layout *layout =
 			closest->mon->pertag->ltidxs[get_client_tag_idx(closest)];
@@ -1783,12 +1860,20 @@ void pointer_place_drag_tile(Client *c) {
 	client_set_floating(c, 0, false);
 }
 
+void pointer_place_drag_tile(Client *c) {
+	pointer_place_drag_tile_on(c, find_closest_tiled_client(c));
+}
+
 bool pointer_process_button_press(struct wlr_pointer_button_event *event) {
 	uint32_t mods;
 	Client *c = NULL;
 	LayerSurface *l = NULL;
 	MangoBarDecoration *bar = NULL;
 	struct wlr_surface *surface;
+	struct wlr_surface *wsov_layer_surface = NULL;
+	double wsov_layer_sx = 0, wsov_layer_sy = 0;
+	bool wsov_layer_hit;
+	bool route_to_wsov_layer;
 	int32_t ji;
 	const MouseBinding *m;
 	struct wlr_surface *old_pointer_focus_surface =
@@ -1810,6 +1895,19 @@ bool pointer_process_button_press(struct wlr_pointer_button_event *event) {
 	switch (event->state) {
 	case WL_POINTER_BUTTON_STATE_PRESSED:
 		server.cursor_mode = CurPressed;
+		wsov_layer_hit = pointer_wsov_direct_layer_at(
+			server.cursor->x, server.cursor->y, &wsov_layer_surface,
+			&wsov_layer_sx, &wsov_layer_sy);
+		wsov_direct_layer_pointer_pressed = wsov_layer_hit;
+		if (!server.session_locked && workspace_overview_is_active() &&
+			!wsov_layer_hit) {
+			pointer_focus(NULL, NULL, 0, 0, 0);
+			return workspace_overview_handle_button(event);
+		}
+		if (wsov_layer_hit)
+			pointer_focus(NULL, wsov_layer_surface, wsov_layer_sx,
+						  wsov_layer_sy, 0);
+
 		set_selected_monitor(
 			monitor_at_point(server.cursor->x, server.cursor->y));
 		if (server.session_locked)
@@ -1952,6 +2050,12 @@ bool pointer_process_button_press(struct wlr_pointer_button_event *event) {
 		}
 		break;
 	case WL_POINTER_BUTTON_STATE_RELEASED:
+		route_to_wsov_layer = wsov_direct_layer_pointer_pressed;
+		wsov_direct_layer_pointer_pressed = false;
+		if (!server.session_locked && workspace_overview_is_active() &&
+			!route_to_wsov_layer)
+			return workspace_overview_handle_button(event);
+
 		server.group_bar_drag_pending = false;
 		server.drop_to_group = false;
 		server.group_bar_drag_client = NULL;

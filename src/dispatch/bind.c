@@ -17,10 +17,12 @@
 #include "mango/layout/dwindle.h"
 #include "mango/layout/layout.h"
 #include "mango/layout/scroll.h"
+#include "mango/layout/tag_ratio.h"
 #include "mango/manage/client.h"
 #include "mango/manage/misc.h"
 #include "mango/manage/monitor.h"
 #include "mango/manage/tab.h"
+#include "mango/workspace_overview/workspace_overview.h"
 #include <fcntl.h>
 #include <unistd.h>
 #include <wlr/backend.h>
@@ -246,6 +248,22 @@ int32_t focus_direction(const Arg *arg) {
 
 	if (!server.selected_monitor)
 		return 0;
+
+	Client *sel = server.selected_monitor->sel;
+	if (!config.focus_cross_monitor &&
+		is_monocle_layout(server.selected_monitor) && sel && !sel->isfloating &&
+		(arg->i == LEFT || arg->i == RIGHT)) {
+		Client *tab_target = tab_get_adjacent_member(sel, arg->i == RIGHT);
+		if (tab_target) {
+			client_focus(tab_target, 1);
+			if (config.warpcursor)
+				pointer_warp_to_client(tab_target);
+			return 0;
+		}
+		Arg a = *arg;
+		a.i = (arg->i == LEFT) ? PREV : NEXT;
+		return focus_stack(&a);
+	}
 
 	Client *c = NULL;
 	c = direction_select(arg);
@@ -653,7 +671,6 @@ int32_t increase_outer_vertical_gap(const Arg *arg) {
 
 int32_t set_master_factor(const Arg *arg) {
 	float f;
-	Client *c = NULL;
 
 	if (!arg || !server.selected_monitor ||
 		!server.selected_monitor->pertag
@@ -667,13 +684,8 @@ int32_t set_master_factor(const Arg *arg) {
 	if (f < 0.1 || f > 0.9)
 		return 0;
 
-	server.selected_monitor->pertag
-		->mfacts[get_mon_curtag(server.selected_monitor)] = f;
-	wl_list_for_each(c, &server.clients, link) {
-		if (VISIBLEON(c, server.selected_monitor) && ISTILED(c)) {
-			c->master_mfact_per = f;
-		}
-	}
+	tag_ratio_state_set_master_mfact(
+		server.selected_monitor, get_mon_curtag(server.selected_monitor), f);
 	arrange(server.selected_monitor, false, false);
 	return 0;
 }
@@ -717,6 +729,7 @@ int32_t smart_kill_client(const Arg *arg) {
 	client_reparent_group(c);
 	client_focus(client_focus_top(server.selected_monitor), 1);
 	arrange(c->mon, false, false);
+	workspace_overview_client_tags_changed(c);
 	return 0;
 }
 
@@ -916,6 +929,7 @@ int32_t restore_minimized(const Arg *arg) {
 	client_set_floating(c, isfloating_before_scratchpad, true);
 	client_update_border_color(c);
 	client_focus(c, 1);
+	workspace_overview_client_tags_changed(c);
 	pointer_warp_to_client(c);
 	return 0;
 }
@@ -1405,8 +1419,6 @@ int32_t switch_keyboard_layout(const Arg *arg) {
 
 		wlr_keyboard_notify_modifiers(tkb, depressed, latched, locked_mods,
 									  next);
-		wlr_seat_set_keyboard(server.seat, tkb);
-		wlr_seat_keyboard_notify_modifiers(server.seat, &tkb->modifiers);
 	}
 
 	printstatus(IPC_WATCH_KB_LAYOUT);
@@ -1669,7 +1681,7 @@ static void special_tag_prepare_target(Monitor *target) {
 
 // toggle the special workspace view on a given monitor
 void toggle_special_tag_mon(Monitor *m) {
-	if (!m)
+	if (!m || workspace_overview_is_active())
 		return;
 
 	set_selected_monitor(m);
@@ -1692,7 +1704,7 @@ int32_t toggle_special_tag(const Arg *arg) {
 }
 
 static void tag_special_tag_internal(const Arg *arg, bool silent) {
-	if (!server.selected_monitor)
+	if (!server.selected_monitor || workspace_overview_is_active())
 		return;
 	Client *c = arg->tc ? arg->tc : server.selected_monitor->sel;
 	if (!c)
@@ -1798,6 +1810,8 @@ int32_t toggle_global(const Arg *arg) {
 	}
 	c->isglobal ^= 1;
 	client_update_border_color(c);
+	if (workspace_overview_is_active_on(c->mon))
+		arrange(c->mon, false, false);
 	return 0;
 }
 
@@ -1854,6 +1868,8 @@ int32_t toggle_overlay(const Arg *arg) {
 
 	client_reparent_group(c);
 	client_update_border_color(c);
+	if (workspace_overview_is_active_on(c->mon))
+		arrange(c->mon, false, false);
 	return 0;
 }
 
@@ -1888,6 +1904,7 @@ int32_t toggle_tag(const Arg *arg) {
 		client_reparent_group(sel);
 		client_focus(client_focus_top(server.selected_monitor), 1);
 		arrange(server.selected_monitor, false, false);
+		workspace_overview_client_tags_changed(sel);
 	}
 	printstatus(IPC_WATCH_ARRANGGE);
 	return 0;
@@ -1896,7 +1913,6 @@ int32_t toggle_tag(const Arg *arg) {
 void toggle_view_on_monitor(const Arg *arg, Monitor *m) {
 	uint32_t newtagset;
 	uint32_t target;
-	Client *c = NULL;
 
 	if (!m)
 		return;
@@ -1906,14 +1922,13 @@ void toggle_view_on_monitor(const Arg *arg, Monitor *m) {
 	newtagset = m->tagset[m->seltags] ^ (target & TAGMASK);
 
 	if (newtagset) {
+		uint32_t oldtag = m->pertag->curtag;
 		m->tagset[m->seltags] = newtagset;
+		m->pertag->curtag = get_tags_first_tag_num(newtagset);
+		if (oldtag != m->pertag->curtag)
+			m->pertag->prevtag = oldtag;
 		client_focus(client_focus_top(m), 1);
-		wl_list_for_each(c, &server.clients, link) {
-			if (VISIBLEON(c, m) && ISTILED(c)) {
-				set_size_per(m, c, true);
-			}
-		}
-		arrange(m, false, false);
+		arrange(m, false, true);
 	}
 	printstatus(IPC_WATCH_ARRANGGE);
 }

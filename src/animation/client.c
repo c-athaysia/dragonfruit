@@ -10,6 +10,7 @@
 #include "mango/manage/misc.h"
 #include "mango/manage/monitor.h"
 #include "mango/manage/tab.h"
+#include "mango/workspace_overview/workspace_overview.h"
 #include <math.h>
 #include <scenefx/types/wlr_scene.h>
 #include <stdint.h>
@@ -140,7 +141,11 @@ bool is_horizontal_right_stack_layout(Monitor *m) {
 int32_t is_special_animation_rule(Client *c) {
 	if (is_scroller_layout(c->mon) && !c->isfloating) {
 		return DOWN;
-	} else if (c->mon->visible_tiling_clients == 1 && !c->isfloating) {
+	/* A newly mapped client is not counted until monitor state is refreshed.
+	 * When no other tiled client is visible, zero still means this opening
+	 * client will be the sole tiled window. Requiring exactly one selects the
+	 * generic direction and causes the first frame to start from the side. */
+	} else if (c->mon->visible_tiling_clients <= 1 && !c->isfloating) {
 		return DOWN;
 	} else if (c->mon->visible_tiling_clients == 2 && !c->isfloating &&
 			   !config.new_is_master && is_horizontal_stack_layout(c->mon)) {
@@ -888,9 +893,138 @@ struct ivec2 clip_to_hide(Client *c, struct wlr_box *clip_box,
 
 	return offset;
 }
+int32_t client_drop_zone(const Layout *layout, bool ismaster,
+						 int32_t visible_tiling_clients, double rel_x,
+						 double rel_y, int32_t width, int32_t height,
+						 struct wlr_box *zone) {
+	struct wlr_box drop_box = {.width = MANGO_MAX(1, width),
+							   .height = MANGO_MAX(1, height)};
+	int32_t drop_direction = UNDIR;
+	if (!layout) {
+		if (zone)
+			*zone = drop_box;
+		return drop_direction;
+	}
+
+	bool dwindle_familiar =
+		layout->id == DWINDLE && config.dwindle_drop_simple_split;
+
+	if (dwindle_familiar) {
+		bool split_h = width >= height;
+		float ratio = config.dwindle_split_ratio;
+		if (split_h) {
+			if (rel_x < width * 0.5) {
+				drop_direction = LEFT;
+				drop_box.width = MANGO_MAX(1, (int32_t)(width * ratio));
+			} else {
+				drop_direction = RIGHT;
+				drop_box.x = (int32_t)(width * ratio);
+				drop_box.width = MANGO_MAX(1, width - (int32_t)(width * ratio));
+			}
+		} else {
+			if (rel_y < height * 0.5) {
+				drop_direction = UP;
+				drop_box.height = MANGO_MAX(1, (int32_t)(height * ratio));
+			} else {
+				drop_direction = DOWN;
+				drop_box.y = (int32_t)(height * ratio);
+				drop_box.height =
+					MANGO_MAX(1, height - (int32_t)(height * ratio));
+			}
+		}
+	} else if (layout->id == TILE || layout->id == DECK ||
+			   layout->id == CENTER_TILE || layout->id == RIGHT_TILE) {
+		if (ismaster) {
+			if (visible_tiling_clients == 1) {
+				if (rel_x < width * 0.5) {
+					drop_direction = LEFT;
+					drop_box.width = width / 2;
+				} else {
+					drop_direction = RIGHT;
+					drop_box.x = width / 2;
+					drop_box.width = width / 2;
+				}
+				drop_box.width = MANGO_MAX(1, drop_box.width);
+			}
+		} else {
+			if (rel_y < height * 0.5) {
+				drop_direction = UP;
+				drop_box.height = height / 2;
+			} else {
+				drop_direction = DOWN;
+				drop_box.y = height / 2;
+				drop_box.height = height / 2;
+			}
+			drop_box.height = MANGO_MAX(1, drop_box.height);
+		}
+	} else if (layout->id == VERTICAL_TILE || layout->id == VERTICAL_DECK) {
+		if (ismaster) {
+			if (visible_tiling_clients == 1) {
+				if (rel_y < height * 0.5) {
+					drop_direction = UP;
+					drop_box.height = height / 2;
+				} else {
+					drop_direction = DOWN;
+					drop_box.y = height / 2;
+					drop_box.height = height / 2;
+				}
+				drop_box.height = MANGO_MAX(1, drop_box.height);
+			}
+		} else {
+			if (rel_x < width * 0.5) {
+				drop_direction = LEFT;
+				drop_box.width = width / 2;
+			} else {
+				drop_direction = RIGHT;
+				drop_box.x = width / 2;
+				drop_box.width = width / 2;
+			}
+			drop_box.width = MANGO_MAX(1, drop_box.width);
+		}
+	} else {
+		double dist_left = rel_x;
+		double dist_right = width - rel_x;
+		double dist_top = rel_y;
+		double dist_bottom = height - rel_y;
+
+		if (dist_left <= dist_right && dist_left <= dist_top &&
+			dist_left <= dist_bottom) {
+			drop_direction = LEFT;
+			drop_box.width = MANGO_MAX(1, width / 2);
+		} else if (dist_right <= dist_top && dist_right <= dist_bottom) {
+			drop_direction = RIGHT;
+			drop_box.x = width / 2;
+			drop_box.width = MANGO_MAX(1, width / 2);
+		} else if (dist_top <= dist_bottom) {
+			drop_direction = UP;
+			drop_box.height = MANGO_MAX(1, height / 2);
+		} else {
+			drop_direction = DOWN;
+			drop_box.y = height / 2;
+			drop_box.height = MANGO_MAX(1, height / 2);
+		}
+	}
+
+	if (zone)
+		*zone = drop_box;
+	return drop_direction;
+}
+
+void client_set_drop_area_color(Client *c) {
+	if (!c || !c->droparea)
+		return;
+
+	float premultiplied[4] = {
+		config.dropcolor[0] * config.dropcolor[3],
+		config.dropcolor[1] * config.dropcolor[3],
+		config.dropcolor[2] * config.dropcolor[3],
+		config.dropcolor[3],
+	};
+	wlr_scene_rect_set_color(c->droparea, premultiplied);
+}
+
 void client_set_drop_area(Client *c) {
 	bool first_draw = false;
-	int32_t drop_direction = UNDIR;
 
 	if (!c || !c->mon)
 		return;
@@ -928,156 +1062,13 @@ void client_set_drop_area(Client *c) {
 
 	double rel_x = server.cursor->x - c->geom.x - bw;
 	double rel_y = server.cursor->y - c->geom.y - bw;
-
-	struct wlr_box drop_box;
 	const Layout *cur_layout = c->mon->pertag->ltidxs[get_client_tag_idx(c)];
-	bool dwindle_familiar =
-		cur_layout->id == DWINDLE && config.dwindle_drop_simple_split;
-
-	if (dwindle_familiar) {
-		bool split_h = c->geom.width >= c->geom.height;
-		float ratio = config.dwindle_split_ratio;
-		if (split_h) {
-			if (rel_x < client_width * 0.5) {
-				drop_direction = LEFT;
-				drop_box.x = bw;
-				drop_box.y = bw;
-				drop_box.width = (int32_t)(client_width * ratio);
-				drop_box.height = client_height;
-			} else {
-				drop_direction = RIGHT;
-				drop_box.x = bw + (int32_t)(client_width * ratio);
-				drop_box.y = bw;
-				drop_box.width = client_width - (int32_t)(client_width * ratio);
-				drop_box.height = client_height;
-			}
-		} else {
-			if (rel_y < client_height * 0.5) {
-				drop_direction = UP;
-				drop_box.x = bw;
-				drop_box.y = bw;
-				drop_box.width = client_width;
-				drop_box.height = (int32_t)(client_height * ratio);
-			} else {
-				drop_direction = DOWN;
-				drop_box.x = bw;
-				drop_box.y = bw + (int32_t)(client_height * ratio);
-				drop_box.width = client_width;
-				drop_box.height =
-					client_height - (int32_t)(client_height * ratio);
-			}
-		}
-	} else if (cur_layout->id == TILE || cur_layout->id == DECK ||
-			   cur_layout->id == CENTER_TILE || cur_layout->id == RIGHT_TILE) {
-		if (c->ismaster) {
-			if (c->mon->visible_tiling_clients == 1) {
-				if (rel_x < client_width * 0.5) {
-					drop_direction = LEFT;
-					drop_box.x = bw;
-					drop_box.y = bw;
-					drop_box.width = client_width / 2;
-					drop_box.height = client_height;
-				} else {
-					drop_direction = RIGHT;
-					drop_box.x = bw + client_width / 2;
-					drop_box.y = bw;
-					drop_box.width = client_width / 2;
-					drop_box.height = client_height;
-				}
-			} else {
-				drop_box.x = bw;
-				drop_box.y = bw;
-				drop_box.width = client_width;
-				drop_box.height = client_height;
-				drop_direction = UNDIR;
-			}
-		} else {
-			if (rel_y < client_height * 0.5) {
-				drop_direction = UP;
-				drop_box.x = bw;
-				drop_box.y = bw;
-				drop_box.width = client_width;
-				drop_box.height = client_height / 2;
-			} else {
-				drop_direction = DOWN;
-				drop_box.x = bw;
-				drop_box.y = bw + client_height / 2;
-				drop_box.width = client_width;
-				drop_box.height = client_height / 2;
-			}
-		}
-	} else if (cur_layout->id == VERTICAL_TILE ||
-			   cur_layout->id == VERTICAL_DECK) {
-		if (c->ismaster) {
-			if (c->mon->visible_tiling_clients == 1) {
-				if (rel_y < client_height * 0.5) {
-					drop_direction = UP;
-					drop_box.x = bw;
-					drop_box.y = bw;
-					drop_box.width = client_width;
-					drop_box.height = client_height / 2;
-				} else {
-					drop_direction = DOWN;
-					drop_box.x = bw;
-					drop_box.y = bw + client_height / 2;
-					drop_box.width = client_width;
-					drop_box.height = client_height / 2;
-				}
-			} else {
-				drop_box.x = bw;
-				drop_box.y = bw;
-				drop_box.width = client_width;
-				drop_box.height = client_height;
-				drop_direction = UNDIR;
-			}
-		} else {
-			if (rel_x < client_width * 0.5) {
-				drop_direction = LEFT;
-				drop_box.x = bw;
-				drop_box.y = bw;
-				drop_box.width = client_width / 2;
-				drop_box.height = client_height;
-			} else {
-				drop_direction = RIGHT;
-				drop_box.x = bw + client_width / 2;
-				drop_box.y = bw;
-				drop_box.width = client_width / 2;
-				drop_box.height = client_height;
-			}
-		}
-	} else {
-		double dist_left = rel_x;
-		double dist_right = client_width - rel_x;
-		double dist_top = rel_y;
-		double dist_bottom = client_height - rel_y;
-
-		if (dist_left <= dist_right && dist_left <= dist_top &&
-			dist_left <= dist_bottom) {
-			drop_direction = LEFT;
-			drop_box.x = bw;
-			drop_box.y = bw;
-			drop_box.width = client_width / 2;
-			drop_box.height = client_height;
-		} else if (dist_right <= dist_top && dist_right <= dist_bottom) {
-			drop_direction = RIGHT;
-			drop_box.x = bw + client_width / 2;
-			drop_box.y = bw;
-			drop_box.width = client_width / 2;
-			drop_box.height = client_height;
-		} else if (dist_top <= dist_bottom) {
-			drop_direction = UP;
-			drop_box.x = bw;
-			drop_box.y = bw;
-			drop_box.width = client_width;
-			drop_box.height = client_height / 2;
-		} else {
-			drop_direction = DOWN;
-			drop_box.x = bw;
-			drop_box.y = bw + client_height / 2;
-			drop_box.width = client_width;
-			drop_box.height = client_height / 2;
-		}
-	}
+	struct wlr_box drop_box;
+	int32_t drop_direction = client_drop_zone(
+		cur_layout, c->ismaster, c->mon->visible_tiling_clients, rel_x, rel_y,
+		client_width, client_height, &drop_box);
+	drop_box.x += bw;
+	drop_box.y += bw;
 
 	if (!first_draw && c->drop_direction == drop_direction)
 		return;
@@ -1139,6 +1130,7 @@ static void client_set_surface_clip(Client *c, const struct wlr_box *clip) {
 void client_set_clip(Client *c, float factor) {
 	if (c->iskilling || !client_surface(c)->mapped)
 		return;
+	workspace_overview_client_frame(c);
 
 	struct ivec2 offsets = compute_edge_offsets(c);
 
@@ -1334,6 +1326,12 @@ void fadeout_client_animation_next_tick(Client *c) {
 
 	if (animation_passed >= 1.0) {
 		wl_list_remove(&c->fadeout_link);
+		/*
+		 * The workspace overview keeps pointers to fadeout snapshots while
+		 * composing workspace previews. Rebuild those previews after unlinking
+		 * but before the snapshot scene is destroyed and the Client is freed.
+		 */
+		workspace_overview_client_removed(c);
 		wlr_scene_node_destroy(&c->scene->node);
 		free(c);
 	}
@@ -1439,11 +1437,14 @@ void init_fadeout_client(Client *c) {
 		return;
 	}
 
-	fadeout_client->animation.duration = config.animation_duration_close;
+	fadeout_client->animation.duration =
+		animation_duration_for_type(CLOSE, config.animation_duration_close);
 	fadeout_client->geom = fadeout_client->current =
 		fadeout_client->animainit_geom = fadeout_client->animation.initial =
 			c->animation.current;
 	fadeout_client->mon = c->mon;
+	fadeout_client->tags = c->tags;
+	fadeout_client->isglobal = c->isglobal;
 	fadeout_client->animation_type_close = c->animation_type_close;
 	fadeout_client->animation.action = CLOSE;
 	fadeout_client->bw = c->bw;
@@ -1479,7 +1480,13 @@ void init_fadeout_client(Client *c) {
 	}
 
 	fadeout_client->animation.time_started = get_now_in_ms();
-	wlr_scene_node_set_enabled(&fadeout_client->scene->node, true);
+	/*
+	 * The workspace overview composes its own copy of the fadeout snapshot.
+	 * Keep the original LyrFadeOut node disabled while wsov is active so it
+	 * cannot show through wsov's transparent background.
+	 */
+	wlr_scene_node_set_enabled(&fadeout_client->scene->node,
+							   !workspace_overview_is_active_on(c->mon));
 	wl_list_insert(&server.fadeout_clients, &fadeout_client->fadeout_link);
 
 	request_fresh_all_monitors();
@@ -1556,6 +1563,10 @@ void client_commit(Client *c) {
 	c->current = c->pending;
 
 	if (c->animation.should_animate) {
+		/* For an in-flight animation, resize() has already copied
+		 * animation.current into animainit_geom. Only seed the current frame
+		 * for a new animation; otherwise initial must continue from the
+		 * current rendered position. */
 		if (!c->animation.running)
 			c->animation.current = c->animainit_geom;
 
@@ -1672,16 +1683,20 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 		!c->animation.tagouting && wlr_box_equal(&c->geom, &c->current))
 		; /* keep current action */
 	else if (c->animation.tagouting) {
-		c->animation.duration = config.animation_duration_tag;
+		c->animation.duration =
+			animation_duration_for_type(TAG, config.animation_duration_tag);
 		c->animation.action = TAG;
 	} else if (c->animation.tagining) {
-		c->animation.duration = config.animation_duration_tag;
+		c->animation.duration =
+			animation_duration_for_type(TAG, config.animation_duration_tag);
 		c->animation.action = TAG;
 	} else if (c->is_pending_open_animation) {
-		c->animation.duration = config.animation_duration_open;
+		c->animation.duration =
+			animation_duration_for_type(OPEN, config.animation_duration_open);
 		c->animation.action = OPEN;
 	} else {
-		c->animation.duration = config.animation_duration_move;
+		c->animation.duration =
+			animation_duration_for_type(MOVE, config.animation_duration_move);
 		c->animation.action = MOVE;
 	}
 
@@ -1783,6 +1798,15 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 		c->animainit_geom = c->geom;
 
 	client_set_pending_state(c);
+	if (opts.skip_animation) {
+		c->animation.running = false;
+		c->animation.should_animate = false;
+		c->animation.duration = 0;
+		c->animation.tagining = false;
+		c->animation.tagouting = false;
+		c->animation.action = MOVE;
+		client_set_finish_geometry(c);
+	}
 	client_update_border_color(c);
 }
 
@@ -1798,7 +1822,8 @@ void client_start_focus_animation(Client *c, bool focused) {
 	float *border_color = get_border_color(c);
 	float *dim_color = get_dim_color(c);
 
-	c->opacity_animation.duration = config.animation_duration_focus;
+	c->opacity_animation.duration =
+		animation_duration_for_type(FOCUS, config.animation_duration_focus);
 	c->opacity_animation.target_opacity =
 		focused ? c->focused_opacity : c->unfocused_opacity;
 	memcpy(c->opacity_animation.target_border_color, border_color,

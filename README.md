@@ -40,6 +40,7 @@ Everything you get from Mango comes along for free:
 - **Excellent input method support** text-input v2/v3
 - **Powerful scratchpad** sway-style scratchpad, special workspace and named-scratchpad support
 - **Label jump overview** see all windows at a glance with easymotion jump labels
+- **Draggable workspace overview** inspect tags and drag windows between them
 - **IPC** send/receive messages from external programs
 - **Hot-reload config** no restart needed for keybinding changes
 - **Zero flickering** every frame is correct

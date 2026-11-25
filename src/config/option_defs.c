@@ -127,6 +127,92 @@ static bool parse_canvas_box_key(Config *config, const char *key,
 	return true;
 }
 
+static bool parse_named_easing(const char *value,
+							   enum animation_easing *easing) {
+	static const struct {
+		const char *name;
+		enum animation_easing easing;
+	} names[] = {
+		{"linear", ANIMATION_EASING_LINEAR},
+		{"easeinsine", ANIMATION_EASING_EASE_IN_SINE},
+		{"easeoutsine", ANIMATION_EASING_EASE_OUT_SINE},
+		{"easeinoutsine", ANIMATION_EASING_EASE_IN_OUT_SINE},
+		{"easeinquad", ANIMATION_EASING_EASE_IN_QUAD},
+		{"easeoutquad", ANIMATION_EASING_EASE_OUT_QUAD},
+		{"easeinoutquad", ANIMATION_EASING_EASE_IN_OUT_QUAD},
+		{"quad", ANIMATION_EASING_EASE_OUT_QUAD},
+		{"easeincubic", ANIMATION_EASING_EASE_IN_CUBIC},
+		{"easeoutcubic", ANIMATION_EASING_EASE_OUT_CUBIC},
+		{"easeinoutcubic", ANIMATION_EASING_EASE_IN_OUT_CUBIC},
+		{"cubic", ANIMATION_EASING_EASE_OUT_CUBIC},
+		{"ease", ANIMATION_EASING_EASE_OUT_CUBIC},
+		{"easein", ANIMATION_EASING_EASE_IN_CUBIC},
+		{"easeout", ANIMATION_EASING_EASE_OUT_CUBIC},
+		{"easeinout", ANIMATION_EASING_EASE_IN_OUT_CUBIC},
+		{"easeinquart", ANIMATION_EASING_EASE_IN_QUART},
+		{"easeoutquart", ANIMATION_EASING_EASE_OUT_QUART},
+		{"easeinoutquart", ANIMATION_EASING_EASE_IN_OUT_QUART},
+		{"quart", ANIMATION_EASING_EASE_OUT_QUART},
+		{"easeinquint", ANIMATION_EASING_EASE_IN_QUINT},
+		{"easeoutquint", ANIMATION_EASING_EASE_OUT_QUINT},
+		{"easeinoutquint", ANIMATION_EASING_EASE_IN_OUT_QUINT},
+		{"quint", ANIMATION_EASING_EASE_OUT_QUINT},
+		{"easeinexpo", ANIMATION_EASING_EASE_IN_EXPO},
+		{"easeoutexpo", ANIMATION_EASING_EASE_OUT_EXPO},
+		{"easeinoutexpo", ANIMATION_EASING_EASE_IN_OUT_EXPO},
+		{"expo", ANIMATION_EASING_EASE_OUT_EXPO},
+		{"easeincirc", ANIMATION_EASING_EASE_IN_CIRC},
+		{"easeoutcirc", ANIMATION_EASING_EASE_OUT_CIRC},
+		{"easeinoutcirc", ANIMATION_EASING_EASE_IN_OUT_CIRC},
+		{"circ", ANIMATION_EASING_EASE_OUT_CIRC},
+		{"easeinback", ANIMATION_EASING_EASE_IN_BACK},
+		{"easeoutback", ANIMATION_EASING_EASE_OUT_BACK},
+		{"easeinoutback", ANIMATION_EASING_EASE_IN_OUT_BACK},
+		{"back", ANIMATION_EASING_EASE_OUT_BACK},
+		{"overshoot", ANIMATION_EASING_EASE_OUT_BACK},
+		{"easeinelastic", ANIMATION_EASING_EASE_IN_ELASTIC},
+		{"easeoutelastic", ANIMATION_EASING_EASE_OUT_ELASTIC},
+		{"easeinoutelastic", ANIMATION_EASING_EASE_IN_OUT_ELASTIC},
+		{"elastic", ANIMATION_EASING_EASE_OUT_ELASTIC},
+		{"easeinbounce", ANIMATION_EASING_EASE_IN_BOUNCE},
+		{"easeoutbounce", ANIMATION_EASING_EASE_OUT_BOUNCE},
+		{"easeinoutbounce", ANIMATION_EASING_EASE_IN_OUT_BOUNCE},
+		{"bounce", ANIMATION_EASING_EASE_OUT_BOUNCE},
+		{"snappy", ANIMATION_EASING_SNAPPY},
+		{"default", ANIMATION_EASING_SNAPPY},
+	};
+	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+		if (strcasecmp(value, names[i].name) == 0) {
+			*easing = names[i].easing;
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool parse_animation_curve_value(AnimationCurve *curve,
+										const char *value) {
+	if (!curve || !value)
+		return false;
+	if (parse_named_easing(value, &curve->easing)) {
+		curve->type = ANIMATION_CURVE_NAMED;
+		return true;
+	}
+	if (parse_double_array(value, curve->bezier, 4) != 4)
+		return false;
+	curve->type = ANIMATION_CURVE_BEZIER;
+	return true;
+}
+
+static void set_bezier_curve(AnimationCurve *curve, double x1, double y1,
+							 double x2, double y2) {
+	curve->type = ANIMATION_CURVE_BEZIER;
+	curve->bezier[0] = x1;
+	curve->bezier[1] = y1;
+	curve->bezier[2] = x2;
+	curve->bezier[3] = y2;
+}
+
 bool parse_option(Config *config, char *key, char *value, int line_number) {
 	if (strcmp(key, "key_mode") == 0) {
 		snprintf(config->keymode, sizeof(config->keymode), "%.27s", value);
@@ -166,10 +252,16 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		config->animation_duration_close = atoi(value);
 	} else if (strcmp(key, "animation_duration_focus") == 0) {
 		config->animation_duration_focus = atoi(value);
+	} else if (strcmp(key, "animation_duration_workspace_overview_open") == 0) {
+		config->animation_duration_wsov_open = atoi(value);
+	} else if (strcmp(key, "animation_duration_workspace_overview_close") ==
+			   0) {
+		config->animation_duration_wsov_close = atoi(value);
+	} else if (strcmp(key, "animation_duration_workspace_overview_move") == 0) {
+		config->animation_duration_wsov_move = atoi(value);
 	} else if (strcmp(key, "animation_curve_move") == 0) {
-		int32_t num =
-			parse_double_array(value, config->animation_curve_move, 4);
-		if (num != 4) {
+		if (!parse_animation_curve_value(&config->animation_curve_move,
+										 value)) {
 			mango_error(false, WLR_ERROR,
 						"Failed to parse "
 						"animation_curve_move: \033[1m\033[31m%s\033[0m\n",
@@ -177,9 +269,8 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 			return false;
 		}
 	} else if (strcmp(key, "animation_curve_open") == 0) {
-		int32_t num =
-			parse_double_array(value, config->animation_curve_open, 4);
-		if (num != 4) {
+		if (!parse_animation_curve_value(&config->animation_curve_open,
+										 value)) {
 			mango_error(false, WLR_ERROR,
 						"Failed to parse "
 						"animation_curve_open: \033[1m\033[31m%s\033[0m\n",
@@ -187,8 +278,7 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 			return false;
 		}
 	} else if (strcmp(key, "animation_curve_tag") == 0) {
-		int32_t num = parse_double_array(value, config->animation_curve_tag, 4);
-		if (num != 4) {
+		if (!parse_animation_curve_value(&config->animation_curve_tag, value)) {
 			mango_error(false, WLR_ERROR,
 						"Failed to parse "
 						"animation_curve_tag: \033[1m\033[31m%s\033[0m\n",
@@ -196,9 +286,8 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 			return false;
 		}
 	} else if (strcmp(key, "animation_curve_close") == 0) {
-		int32_t num =
-			parse_double_array(value, config->animation_curve_close, 4);
-		if (num != 4) {
+		if (!parse_animation_curve_value(&config->animation_curve_close,
+										 value)) {
 			mango_error(false, WLR_ERROR,
 						"Failed to parse "
 						"animation_curve_close: \033[1m\033[31m%s\033[0m\n",
@@ -206,9 +295,8 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 			return false;
 		}
 	} else if (strcmp(key, "animation_curve_focus") == 0) {
-		int32_t num =
-			parse_double_array(value, config->animation_curve_focus, 4);
-		if (num != 4) {
+		if (!parse_animation_curve_value(&config->animation_curve_focus,
+										 value)) {
 			mango_error(false, WLR_ERROR,
 						"Failed to parse "
 						"animation_curve_focus: \033[1m\033[31m%s\033[0m\n",
@@ -216,9 +304,8 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 			return false;
 		}
 	} else if (strcmp(key, "animation_curve_opacity_fade_in") == 0) {
-		int32_t num =
-			parse_double_array(value, config->animation_curve_opafadein, 4);
-		if (num != 4) {
+		if (!parse_animation_curve_value(&config->animation_curve_opafadein,
+										 value)) {
 			mango_error(false, WLR_ERROR,
 						"Failed to parse "
 						"animation_curve_opafadein: \033[1m\033[31m%s\033[0m\n",
@@ -226,13 +313,45 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 			return false;
 		}
 	} else if (strcmp(key, "animation_curve_opacity_fade_out") == 0) {
-		int32_t num =
-			parse_double_array(value, config->animation_curve_opafadeout, 4);
-		if (num != 4) {
+		if (!parse_animation_curve_value(&config->animation_curve_opafadeout,
+										 value)) {
 			mango_error(
 				false, WLR_ERROR,
 				"Failed to parse "
 				"animation_curve_opafadeout: \033[1m\033[31m%s\033[0m\n",
+				value);
+			return false;
+		}
+	} else if (strcmp(key, "animation_curve_workspace_overview_open") == 0) {
+		if (!parse_animation_curve_value(&config->animation_curve_wsov_open,
+										 value)) {
+			mango_error(
+				false, WLR_ERROR,
+				"Failed to parse "
+				"animation_curve_workspace_overview_open: \033[1m\033[31m%s"
+				"\033[0m\n",
+				value);
+			return false;
+		}
+	} else if (strcmp(key, "animation_curve_workspace_overview_close") == 0) {
+		if (!parse_animation_curve_value(&config->animation_curve_wsov_close,
+										 value)) {
+			mango_error(
+				false, WLR_ERROR,
+				"Failed to parse "
+				"animation_curve_workspace_overview_close: \033[1m\033[31m%s"
+				"\033[0m\n",
+				value);
+			return false;
+		}
+	} else if (strcmp(key, "animation_curve_workspace_overview_move") == 0) {
+		if (!parse_animation_curve_value(&config->animation_curve_wsov_move,
+										 value)) {
+			mango_error(
+				false, WLR_ERROR,
+				"Failed to parse "
+				"animation_curve_workspace_overview_move: \033[1m\033[31m%s"
+				"\033[0m\n",
 				value);
 			return false;
 		}
@@ -575,6 +694,32 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		config->overviewgappi = atoi(value);
 	} else if (strcmp(key, "overview_gap_outer") == 0) {
 		config->overviewgappo = atoi(value);
+	} else if (strcmp(key, "workspace_overview_focused_dim_opacity") == 0) {
+		config->workspace_overview_focused_dim_opacity = atof(value);
+	} else if (strcmp(key, "workspace_overview_unfocused_dim_opacity") == 0) {
+		config->workspace_overview_unfocused_dim_opacity = atof(value);
+	} else if (strcmp(key, "workspace_overview_border_width") == 0) {
+		config->workspace_overview_border_width = atoi(value);
+	} else if (strcmp(key, "workspace_overview_gap") == 0) {
+		config->workspace_overview_gap = atoi(value);
+	} else if (strcmp(key, "workspace_overview_drag_threshold") == 0) {
+		config->workspace_overview_drag_threshold = atoi(value);
+	} else if (strcmp(key, "workspace_overview_occupied_keep_seen_tags") == 0) {
+		config->workspace_overview_occupied_keep_seen_tags = atoi(value);
+	} else if (strcmp(key, "workspace_overview_scroll_direction") == 0) {
+		config->workspace_overview_scroll_direction =
+			strcmp(value, "vertical") == 0
+				? WORKSPACE_OVERVIEW_SCROLL_VERTICAL
+				: WORKSPACE_OVERVIEW_SCROLL_HORIZONTAL;
+	} else if (strcmp(key, "workspace_overview_scroll_ratio") == 0) {
+		config->workspace_overview_scroll_ratio = atof(value);
+	} else if (strcmp(key, "workspace_overview_drag_scroll_speed") == 0) {
+		config->workspace_overview_drag_scroll_speed = atof(value);
+	} else if (strcmp(key, "workspace_overview_scroll_decel_start_interval") ==
+			   0) {
+		config->workspace_overview_scroll_decel_start_interval = atoi(value);
+	} else if (strcmp(key, "workspace_overview_scroll_decel_gain") == 0) {
+		config->workspace_overview_scroll_decel_gain = atof(value);
 	} else if (strcmp(key, "overcircle_center_ratio") == 0) {
 		config->overcircle_center_ratio = atof(value);
 	} else if (strcmp(key, "jump_labels") == 0) {
@@ -1593,6 +1738,7 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		}
 
 		rule->isfloating = -1;
+		rule->stayfocused = -1;
 		rule->isfullscreen = -1;
 		rule->isfakefullscreen = -1;
 		rule->no_border = -1;
@@ -1663,6 +1809,8 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 
 				if (strcmp(key, "is_floating") == 0) {
 					rule->isfloating = atoi(val);
+				} else if (strcmp(key, "stay_focused") == 0) {
+					rule->stayfocused = atoi(val);
 				} else if (strcmp(key, "title") == 0) {
 					rule->title = strdup(val);
 				} else if (strcmp(key, "app_id") == 0) {
@@ -2089,7 +2237,7 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 
 		config->exec_once_count++;
 
-	} else if (regex_match("^bind[s|l|r|p|c]*$", key)) {
+	} else if (regex_match("^bind[s|l|r|p|c|n]*$", key)) {
 		config->key_bindings =
 			realloc(config->key_bindings,
 					(config->key_bindings_count + 1) * sizeof(KeyBinding));
@@ -2596,8 +2744,10 @@ void set_value_default() {
 	config.animation_duration_tag = 300;
 	config.animation_duration_close = 300;
 	config.animation_duration_focus = 0;
+	config.animation_duration_wsov_open = 260;
+	config.animation_duration_wsov_close = 260;
+	config.animation_duration_wsov_move = 382;
 
-	config.axis_bind_apply_timeout = 100;
 	config.focus_on_activate = 1;
 	config.new_is_master = 1;
 	config.default_mfact = 0.55f;
@@ -2707,9 +2857,22 @@ void set_value_default() {
 	config.group_bar_button_color[3] = 1.0f;
 	config.overviewgappi = 5;
 	config.overviewgappo = 30;
+	config.workspace_overview_focused_dim_opacity = 0.0f;
+	config.workspace_overview_unfocused_dim_opacity = 0.2f;
+	config.workspace_overview_border_width = 2;
+	config.workspace_overview_gap = 5;
+	config.workspace_overview_drag_threshold = 5;
+	config.workspace_overview_occupied_keep_seen_tags = 1;
+	config.workspace_overview_scroll_direction =
+		WORKSPACE_OVERVIEW_SCROLL_VERTICAL;
+	config.workspace_overview_scroll_ratio = 0.8f;
+	config.workspace_overview_drag_scroll_speed = 1.5f;
+	config.workspace_overview_scroll_decel_start_interval = 50;
+	config.workspace_overview_scroll_decel_gain = 0.5f;
 	config.overcircle_center_ratio = 0.5f;
 	config.cursor_hide_timeout = 0;
 	config.cursor_hide_on_keypress = 0;
+	config.axis_bind_apply_timeout = 100;
 
 	config.warpcursor = 1;
 	config.drag_corner = 3;
@@ -2784,34 +2947,18 @@ void set_value_default() {
 	config.dim_unfocused_color[2] = 0.0f;
 	config.dim_unfocused_color[3] = 0x55 / 255.0f;
 
-	config.animation_curve_move[0] = 0.46;
-	config.animation_curve_move[1] = 1.0;
-	config.animation_curve_move[2] = 0.29;
-	config.animation_curve_move[3] = 0.99;
-	config.animation_curve_open[0] = 0.46;
-	config.animation_curve_open[1] = 1.0;
-	config.animation_curve_open[2] = 0.29;
-	config.animation_curve_open[3] = 0.99;
-	config.animation_curve_tag[0] = 0.46;
-	config.animation_curve_tag[1] = 1.0;
-	config.animation_curve_tag[2] = 0.29;
-	config.animation_curve_tag[3] = 0.99;
-	config.animation_curve_close[0] = 0.46;
-	config.animation_curve_close[1] = 1.0;
-	config.animation_curve_close[2] = 0.29;
-	config.animation_curve_close[3] = 0.99;
-	config.animation_curve_focus[0] = 0.46;
-	config.animation_curve_focus[1] = 1.0;
-	config.animation_curve_focus[2] = 0.29;
-	config.animation_curve_focus[3] = 0.99;
-	config.animation_curve_opafadein[0] = 0.46;
-	config.animation_curve_opafadein[1] = 1.0;
-	config.animation_curve_opafadein[2] = 0.29;
-	config.animation_curve_opafadein[3] = 0.99;
-	config.animation_curve_opafadeout[0] = 0.5;
-	config.animation_curve_opafadeout[1] = 0.5;
-	config.animation_curve_opafadeout[2] = 0.5;
-	config.animation_curve_opafadeout[3] = 0.5;
+	set_bezier_curve(&config.animation_curve_move, 0.46, 1.0, 0.29, 0.99);
+	set_bezier_curve(&config.animation_curve_open, 0.46, 1.0, 0.29, 0.99);
+	set_bezier_curve(&config.animation_curve_tag, 0.46, 1.0, 0.29, 0.99);
+	set_bezier_curve(&config.animation_curve_close, 0.46, 1.0, 0.29, 0.99);
+	set_bezier_curve(&config.animation_curve_focus, 0.46, 1.0, 0.29, 0.99);
+	set_bezier_curve(&config.animation_curve_opafadein, 0.46, 1.0, 0.29, 0.99);
+	set_bezier_curve(&config.animation_curve_opafadeout, 0.5, 0.5, 0.5, 0.5);
+	set_bezier_curve(&config.animation_curve_wsov_open, 1.0 / 3.0, 1.0,
+					 2.0 / 3.0, 1.0);
+	set_bezier_curve(&config.animation_curve_wsov_close, 1.0 / 3.0, 1.0,
+					 2.0 / 3.0, 1.0);
+	set_bezier_curve(&config.animation_curve_wsov_move, 0.26, 0.99, 0.26, 1.0);
 
 	config.groupbardata.fg_color[0] = 0xc0 / 255.0f;
 	config.groupbardata.fg_color[1] = 0xca / 255.0f;
@@ -2899,10 +3046,10 @@ void set_value_default() {
 	config.bordercolor[1] = 0x44 / 255.0f;
 	config.bordercolor[2] = 0x44 / 255.0f;
 	config.bordercolor[3] = 1.0f;
-	config.dropcolor[0] = 0xd5 / 255.0f;
-	config.dropcolor[1] = 0x89 / 255.0f;
-	config.dropcolor[2] = 0x9d / 255.0f;
-	config.dropcolor[3] = 0.5f;
+	config.dropcolor[0] = 0x8f / 255.0f;
+	config.dropcolor[1] = 0xba / 255.0f;
+	config.dropcolor[2] = 0x7c / 255.0f;
+	config.dropcolor[3] = 0x55 / 255.0f;
 	config.splitcolor[0] = 0xeb / 255.0f;
 	config.splitcolor[1] = 0x44 / 255.0f;
 	config.splitcolor[2] = 0x1e / 255.0f;
@@ -2957,6 +3104,12 @@ void override_config(void) {
 		CLAMP_INT(config.animation_duration_close, 0, 50000);
 	config.animation_duration_focus =
 		CLAMP_INT(config.animation_duration_focus, 0, 50000);
+	config.animation_duration_wsov_open =
+		CLAMP_INT(config.animation_duration_wsov_open, 1, 50000);
+	config.animation_duration_wsov_close =
+		CLAMP_INT(config.animation_duration_wsov_close, 1, 50000);
+	config.animation_duration_wsov_move =
+		CLAMP_INT(config.animation_duration_wsov_move, 1, 50000);
 	config.scroller_default_proportion =
 		CLAMP_FLOAT(config.scroller_default_proportion, 0.1f, 1.0f);
 	config.scroller_default_proportion_single =
@@ -3001,6 +3154,26 @@ void override_config(void) {
 		CLAMP_INT(config.hotarea_disable_on_fullscreen, 0, 1);
 	config.overviewgappi = CLAMP_INT(config.overviewgappi, 0, 1000);
 	config.overviewgappo = CLAMP_INT(config.overviewgappo, 0, 1000);
+	config.workspace_overview_focused_dim_opacity =
+		CLAMP_FLOAT(config.workspace_overview_focused_dim_opacity, 0.0f, 1.0f);
+	config.workspace_overview_unfocused_dim_opacity = CLAMP_FLOAT(
+		config.workspace_overview_unfocused_dim_opacity, 0.0f, 1.0f);
+	config.workspace_overview_border_width =
+		CLAMP_INT(config.workspace_overview_border_width, 0, 100);
+	config.workspace_overview_gap =
+		CLAMP_INT(config.workspace_overview_gap, 0, 1000);
+	config.workspace_overview_drag_threshold =
+		CLAMP_INT(config.workspace_overview_drag_threshold, 0, 1000);
+	config.workspace_overview_occupied_keep_seen_tags =
+		CLAMP_INT(config.workspace_overview_occupied_keep_seen_tags, 0, 1);
+	config.workspace_overview_scroll_ratio =
+		CLAMP_FLOAT(config.workspace_overview_scroll_ratio, 0.1f, 1.0f);
+	config.workspace_overview_drag_scroll_speed =
+		CLAMP_FLOAT(config.workspace_overview_drag_scroll_speed, 0.1f, 10.0f);
+	config.workspace_overview_scroll_decel_start_interval = CLAMP_INT(
+		config.workspace_overview_scroll_decel_start_interval, 1, 1000);
+	config.workspace_overview_scroll_decel_gain =
+		CLAMP_FLOAT(config.workspace_overview_scroll_decel_gain, 0.0f, 1.0f);
 	config.overcircle_center_ratio =
 		CLAMP_FLOAT(config.overcircle_center_ratio, 0.1f, 0.9f);
 	config.xwayland_persistence = CLAMP_INT(config.xwayland_persistence, 0, 1);
@@ -3017,8 +3190,6 @@ void override_config(void) {
 	config.allow_lock_transparent =
 		CLAMP_INT(config.allow_lock_transparent, 0, 1);
 	config.auto_reload_config = CLAMP_INT(config.auto_reload_config, 0, 1);
-	config.axis_bind_apply_timeout =
-		CLAMP_INT(config.axis_bind_apply_timeout, 0, 1000);
 	config.focus_on_activate = CLAMP_INT(config.focus_on_activate, 0, 1);
 	config.idleinhibit_ignore_visible =
 		CLAMP_INT(config.idleinhibit_ignore_visible, 0, 1);
@@ -3058,6 +3229,8 @@ void override_config(void) {
 		CLAMP_INT(config.cursor_hide_timeout, 0, 36000);
 	config.cursor_hide_on_keypress =
 		CLAMP_INT(config.cursor_hide_on_keypress, 0, 1);
+	config.axis_bind_apply_timeout =
+		CLAMP_INT(config.axis_bind_apply_timeout, 0, 1000);
 	config.single_scratchpad = CLAMP_INT(config.single_scratchpad, 0, 1);
 	config.repeat_rate = CLAMP_INT(config.repeat_rate, 1, 1000);
 	config.repeat_delay = CLAMP_INT(config.repeat_delay, 1, 20000);

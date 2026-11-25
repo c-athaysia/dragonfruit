@@ -29,12 +29,14 @@
 #include "mango/ipc/ipc.h"
 #include "mango/layout/arrange.h"
 #include "mango/layout/layout.h"
+#include "mango/layout/tag_ratio.h"
 #include "mango/manage/client.h"
 #include "mango/manage/layer.h"
 #include "mango/manage/misc.h"
 #include "mango/manage/monitor.h"
 #include "mango/manage/tab.h"
 #include "mango/switcher/switcher.h"
+#include "mango/workspace_overview/workspace_overview.h"
 #include <scenefx/types/wlr_scene.h>
 #include <unistd.h>
 #include <wlr/backend/libinput.h>
@@ -116,6 +118,12 @@ void reapply_rootbg(void) {
 	// because thats when a gl context exists
 	shader_bg_load(config.canvas_shader);
 	shader_bg_mark_dirty();
+	Monitor *m = NULL;
+	wl_list_for_each(m, &server.monitors, link) {
+		if (m->blur) {
+			wlr_scene_optimized_blur_mark_dirty(m->blur);
+		}
+	}
 }
 
 void reapply_property(void) {
@@ -129,6 +137,19 @@ void reapply_property(void) {
 			}
 			client_set_group_config(c);
 			client_set_tab_bar_config(c);
+
+			const char *appid = client_get_appid(c);
+			const char *title = client_get_title(c);
+			if (!appid) appid = "broken";
+			if (!title) title = "broken";
+
+			reset_fixed_rule_properties(c);
+			for (int32_t i = 0; i < config.window_rules_count; i++) {
+				ConfigWinRule *r = &config.window_rules[i];
+				if (is_window_rule_matches(r, appid, title)) {
+					apply_fixed_rule_properties(c, r);
+				}
+			}
 		}
 	}
 }
@@ -160,7 +181,6 @@ void reapply_tagrule(void) {
 }
 
 void reset_option(void) {
-	init_baked_points();
 	pointer_cursor_activity();
 	reset_keyboard_layout();
 	reset_blur_params();
@@ -476,7 +496,6 @@ void tag_rule_apply_to_slot(Monitor *m, const ConfigTagRule *tr, uint32_t tag) {
 
 void parse_tagrule(Monitor *m) {
 	int32_t i;
-	Client *c = NULL;
 	const Layout *prev_config_ltidxs[PERTAG_SLOTS];
 
 	for (i = 0; i < PERTAG_SLOTS; i++)
@@ -506,12 +525,8 @@ void parse_tagrule(Monitor *m) {
 	}
 
 	for (i = 1; i <= config.tag_num; i++) {
-		wl_list_for_each(c, &server.clients, link) {
-			if ((c->tags & (1 << (i - 1)) & TAGMASK) && ISTILED(c)) {
-				if (m->pertag->mfacts[i] > 0.0f)
-					c->master_mfact_per = m->pertag->mfacts[i];
-			}
-		}
+		if (m->pertag->mfacts[i] > 0.0f)
+			tag_ratio_state_set_master_mfact(m, i, m->pertag->mfacts[i]);
 	}
 }
 
@@ -540,6 +555,7 @@ void reset_tag(int old_tag_num) {
 			if (m->pertag->prevtag > (uint32_t)config.tag_num)
 				m->pertag->prevtag = config.tag_num;
 			sync_workspaces_to_tag_num(m);
+			tag_ratio_state_begin(m, get_mon_curtag(m), true);
 		}
 	}
 }
@@ -549,6 +565,7 @@ int32_t reload_config(const Arg *arg) {
 	parse_config();
 	reset_tag(old_tag_num);
 	reset_option();
+	workspace_overview_reload();
 	update_seat_capabilities();
 	apply_primary_selection();
 	printstatus(IPC_WATCH_ARRANGGE);

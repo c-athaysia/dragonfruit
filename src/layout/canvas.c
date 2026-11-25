@@ -12,6 +12,7 @@
 #include "mango/layout/layout.h"
 #include "mango/manage/client.h"
 #include "mango/manage/monitor.h"
+#include "mango/workspace_overview/workspace_overview.h"
 #include <math.h>
 #include <stdlib.h>
 #include <wlr/types/wlr_compositor.h>
@@ -2495,7 +2496,7 @@ static bool canvas_overview_fit(Monitor *m) {
 int32_t canvas_overview(const Arg *arg) {
 	(void)arg;
 	Monitor *m = server.selected_monitor;
-	if (!m || !canvas_active(m))
+	if (!m || !canvas_active(m) || workspace_overview_is_active())
 		return 0;
 
 	if (m->canvas_overview) {

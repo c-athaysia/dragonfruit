@@ -150,7 +150,7 @@ struct Client {
 	int32_t xdg_geo_x, xdg_geo_y;
 	uint32_t configure_serial;
 	struct wlr_foreign_toplevel_handle_v1 *foreign_toplevel;
-	int32_t isfloating, isurgent, isfullscreen, isfakefullscreen,
+	int32_t isfloating, stayfocused, isurgent, isfullscreen, isfakefullscreen,
 		need_float_size_reduce, isminimized, isoverlay, no_size_hint,
 		ignore_maximize, ignore_minimize, idleinhibit_when_focus,
 		vrr_only_fullscreen, force_render, activation_bypass;
@@ -260,6 +260,8 @@ struct Client {
 	bool snapshot_temp_visible;
 	/* per-frame: surface clipped away by the draw path */
 	bool is_surface_hidden;
+	/* temporarily hidden while workspace overview renders offscreen previews */
+	bool wsov_hidden;
 };
 
 #define CLIENT_GROUP_PREV_OFF offsetof(Client, group_prev)
@@ -273,7 +275,10 @@ bool client_init_unmanaged(Client *c);
 void client_park(Client *c);
 void client_unpark(Client *c, Client *anchor);
 bool client_is_parked(Client *c);
-void apply_rule_properties(Client *c, const ConfigWinRule *r);
+void reset_fixed_rule_properties(Client *c);
+void apply_fixed_rule_properties(Client *c, const ConfigWinRule *r);
+void apply_runtime_rule_properties(Client *c, const ConfigWinRule *r);
+void apply_initial_rule_properties(Client *c, const ConfigWinRule *r);
 bool is_window_rule_matches(const ConfigWinRule *r, const char *appid,
 							const char *title);
 void client_swap_layout_properties(Client *c1, Client *c2);
@@ -379,7 +384,7 @@ int32_t is_single_bit_set(uint32_t x);
 bool client_only_in_one_tag(Client *c);
 bool client_is_in_same_stack(Client *sc, Client *tc, Client *fc);
 Client *get_focused_stack_client(Client *sc, Client *custom_focus_client);
-void apply_rule_properties(Client *c, const ConfigWinRule *r);
+void apply_initial_rule_properties(Client *c, const ConfigWinRule *r);
 void set_float_malposition(Client *tc);
 void client_reset_mon_tags(Client *c, Monitor *mon, uint32_t newtags);
 void check_match_tag_floating_rule(Client *c, Monitor *mon);
@@ -414,6 +419,7 @@ void iter_xdg_scene_buffers(struct wlr_scene_buffer *buffer, int32_t sx,
 void scene_buffer_apply_opacity(struct wlr_scene_buffer *buffer, int32_t sx,
 								int32_t sy, void *data);
 void client_set_opacity(Client *c, double opacity);
+bool client_stay_focused_blocks(Client *incoming);
 void client_focus(Client *c, int32_t lift);
 void client_ensure_constraint(Client *c);
 void client_active(Client *c);
@@ -437,6 +443,7 @@ void set_minimized(Client *c);
 void unminimize(Client *c);
 void exit_scroller_stack(Client *c);
 void clear_fullscreen_and_maximized_state(Monitor *m);
+void clear_fullscreen_for_incoming_tiled_client(Client *incoming);
 
 /* Clears the fullscreen flag and restores the border zeroed at fullscreen. */
 void clear_fullscreen_flag(Client *c);
