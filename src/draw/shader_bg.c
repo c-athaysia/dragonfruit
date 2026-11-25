@@ -496,6 +496,40 @@ static struct wlr_buffer *render_copy(Monitor *m, int32_t w, int32_t h) {
 	return out ? &out->base : NULL;
 }
 
+struct wlr_buffer *shader_bg_render_view(Monitor *m, int32_t w, int32_t h,
+										 double cam_x, double cam_y,
+										 double zoom) {
+	if (!m || !server.renderer || w <= 0 || h <= 0 ||
+		!(pending_valid || (gl_ready && program)))
+		return NULL;
+	double sx = m->cam_x, sy = m->cam_y, sz = m->zoom;
+	m->cam_x = cam_x, m->cam_y = cam_y, m->zoom = zoom;
+	struct wlr_buffer *out = NULL;
+	if (use_copy()) {
+		// the copy target resizes to fit, the next update sees the size
+		// change and redraws the screen one
+		out = render_copy(m, w, h);
+	} else {
+		// a buffer of its own the monitors one stays on screen
+		struct wlr_buffer *live = m->bg_buf;
+		int32_t lw = m->bg_w, lh = m->bg_h;
+		m->bg_buf = NULL;
+		bool drew = render_direct(m, w, h) != NULL;
+		out = m->bg_buf;
+		if (!drew && out) {
+			wlr_buffer_drop(out);
+			out = NULL;
+		}
+		m->bg_buf = live, m->bg_w = lw, m->bg_h = lh;
+	}
+	m->cam_x = sx, m->cam_y = sy, m->zoom = sz;
+	if (out && !(gl_ready && program)) {
+		wlr_buffer_drop(out);
+		out = NULL;
+	}
+	return out;
+}
+
 bool shader_bg_update(Monitor *m) {
 	if (!m || !m->wlr_output || !server.renderer)
 		return false;

@@ -16,6 +16,7 @@ struct wsov_live_effects {
 	struct wlr_scene_shadow *shadow;
 	struct wlr_scene_blur *blur;
 	struct wlr_scene_rect *border;
+	struct wlr_scene_rect *inner; // inner ring of a double border
 	bool layout_valid;
 	bool layout_hidden;
 	struct wlr_box window_box;
@@ -128,6 +129,10 @@ wsov_live_effects_create(struct wlr_scene_tree *parent, struct Client *client) {
 		wlr_scene_rect_create(parent, 0, 0, get_border_color(client));
 	if (effects->border)
 		wlr_scene_node_set_enabled(&effects->border->node, false);
+	effects->inner =
+		wlr_scene_rect_create(parent, 0, 0, get_inner_border_color(client));
+	if (effects->inner)
+		wlr_scene_node_set_enabled(&effects->inner->node, false);
 	return effects;
 }
 
@@ -144,6 +149,45 @@ void wsov_live_effects_apply_surface(struct wsov_live_effects *effects,
 		buffer, wsov_live_client_corners(effects->client, scale));
 }
 
+// inner ring of a double border inset from the outer ring by the gap
+// the outer ring above already shrank to leave room for it
+static void wsov_live_inner_update(struct wsov_live_effects *effects,
+								   const struct wlr_box *window_box,
+								   const struct wlr_box *monitor_clip,
+								   double scale, struct fx_corner_radii corners,
+								   bool enabled) {
+	Client *client = effects->client;
+	int32_t gap = 0;
+	int32_t iw = inner_ring_width((int32_t)client->bw, &gap);
+	int in = (int)lround((client->bw - iw) * scale);
+	int bw = MANGO_MAX(1, (int)lround(client->bw * scale));
+	struct wlr_box ring = {window_box->x + in, window_box->y + in,
+						   window_box->width - 2 * in,
+						   window_box->height - 2 * in};
+	struct wlr_box hole = {window_box->x + bw, window_box->y + bw,
+						   window_box->width - 2 * bw,
+						   window_box->height - 2 * bw};
+	struct wlr_box box = {0}, clip = {0};
+	enabled = enabled && iw > 0 && hole.width > 0 && hole.height > 0 &&
+			  wlr_box_intersection(&box, &ring, monitor_clip) &&
+			  wlr_box_intersection(&clip, &hole, &box);
+	if (enabled) {
+		wlr_scene_node_set_position(&effects->inner->node, box.x, box.y);
+		wlr_scene_rect_set_size(effects->inner, box.width, box.height);
+		wlr_scene_rect_set_corner_radii(effects->inner, corners);
+		wlr_scene_rect_set_clipped_region(
+			effects->inner,
+			(struct clipped_region){
+				.area = {clip.x - box.x, clip.y - box.y, clip.width,
+						 clip.height},
+				.corners = corners,
+			});
+		wlr_scene_rect_set_color(effects->inner,
+								 get_inner_border_color(client));
+	}
+	wlr_scene_node_set_enabled(&effects->inner->node, enabled);
+}
+
 static void wsov_live_effects_update_impl(struct wsov_live_effects *effects,
 										  const struct wlr_box *window_box,
 										  const struct wlr_box *monitor_clip,
@@ -156,6 +200,8 @@ static void wsov_live_effects_update_impl(struct wsov_live_effects *effects,
 		wlr_scene_node_set_enabled(&effects->blur->node, false);
 	if (effects->border)
 		wlr_scene_node_set_enabled(&effects->border->node, false);
+	if (effects->inner)
+		wlr_scene_node_set_enabled(&effects->inner->node, false);
 	if (!window_box || !monitor_clip || window_box->width <= 0 ||
 		window_box->height <= 0 || monitor_clip->width <= 0 ||
 		monitor_clip->height <= 0 || !isfinite(scale) || scale <= 0.0)
@@ -243,6 +289,11 @@ static void wsov_live_effects_update_impl(struct wsov_live_effects *effects,
 		if (enabled &&
 			wlr_box_intersection(&border_box, window_box, monitor_clip)) {
 			int border_width = MANGO_MAX(1, (int)lround(client->bw * scale));
+			int32_t gap = 0;
+			int32_t iw = inner_ring_width((int32_t)client->bw, &gap);
+			if (iw > 0)
+				border_width = MANGO_MAX(
+					1, (int)lround((client->bw - iw - gap) * scale));
 			struct wlr_box window_inner = {
 				.x = window_box->x + border_width,
 				.y = window_box->y + border_width,
@@ -277,6 +328,9 @@ static void wsov_live_effects_update_impl(struct wsov_live_effects *effects,
 			wlr_scene_rect_set_color(effects->border, get_border_color(client));
 		}
 		wlr_scene_node_set_enabled(&effects->border->node, enabled);
+		if (effects->inner)
+			wsov_live_inner_update(effects, window_box, monitor_clip, scale,
+								   corners, enabled);
 	}
 }
 
@@ -312,6 +366,8 @@ void wsov_live_effects_destroy(struct wsov_live_effects *effects) {
 		wlr_scene_node_destroy(&effects->blur->node);
 	if (effects->border)
 		wlr_scene_node_destroy(&effects->border->node);
+	if (effects->inner)
+		wlr_scene_node_destroy(&effects->inner->node);
 	free(effects);
 }
 

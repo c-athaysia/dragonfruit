@@ -82,6 +82,7 @@ struct Client {
 	// learning stops and the stored size gets pushed instead until the client
 	// matches again
 	bool canvas_resize_pending;
+	struct wlr_box canvas_wsov_geom; // real geom while wsov previews zoom it
 	// when canvas_seed_client placed it
 	// a focus right after that is the auto focus not the user
 	int64_t canvas_seeded_ms;
@@ -378,6 +379,7 @@ Client *client_focus_top(Monitor *m);
 Client *get_next_stack_client(Client *c, bool reverse);
 float *get_border_color(Client *c);
 float *get_inner_border_color(Client *c);
+int32_t inner_ring_width(int32_t bw, int32_t *gap);
 float *get_dim_color(Client *c);
 
 int32_t is_single_bit_set(uint32_t x);

@@ -725,7 +725,7 @@ void client_draw_split_border(Client *c, bool hit_no_border,
 								border_right_y);
 }
 // inner ring and gap for a border bw wide, iw 0 when there is one ring
-static int32_t inner_ring_width(int32_t bw, int32_t *gap) {
+int32_t inner_ring_width(int32_t bw, int32_t *gap) {
 	*gap = 0;
 	if (config.inner_borderpx == 0 || config.borderpx == 0 || bw <= 0)
 		return 0;

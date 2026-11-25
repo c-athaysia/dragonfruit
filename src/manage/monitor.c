@@ -725,6 +725,7 @@ void handle_new_output(struct wl_listener *listener, void *data) {
 	m->zoom = 1.0;
 	m->zoom_target = 1.0;
 	m->zoom_animating = false;
+	m->canvas_cam_tag = UINT32_MAX;
 
 	m->gappoh = config.gappoh;
 	m->gappov = config.gappov;

@@ -141,7 +141,13 @@ void wsov_capture_cell_items(struct wsov_cell *cell) {
 		if (!wsov_client_on_tag(c, cell->tag))
 			continue;
 		wsov_item_add(cell, c);
-		cell->items[cell->item_count - 1].workspace_geom = c->animation.current;
+		struct wlr_box geo = c->animation.current;
+		if (cell->canvas_zoom > 0.0 && canvas_active(wsov.mon) &&
+			ISFAKETILED(c) && c->canvas_placed && !c->isfullscreen &&
+			!c->ismaximizescreen)
+			geo = canvas_preview_box(c, cell->canvas_cam_x, cell->canvas_cam_y,
+									 cell->canvas_zoom);
+		cell->items[cell->item_count - 1].workspace_geom = geo;
 	}
 	wl_list_for_each(c, &server.fadeout_clients, fadeout_link) {
 		if (c->mon != wsov.mon)
@@ -370,6 +376,9 @@ void wsov_capture_workspace_tags(uint32_t tags) {
 
 	sync_tag_ratio_state_from_clients(m, saved_curtag);
 	config.tag_gather = false;
+	bool on_canvas = canvas_active(m);
+	if (on_canvas)
+		canvas_wsov_begin(m);
 
 	Client *c;
 	wl_list_for_each(c, &server.clients, link) {
@@ -387,8 +396,13 @@ void wsov_capture_workspace_tags(uint32_t tags) {
 			continue;
 		m->tagset[saved_seltags] = wsov_tag_bit(tag);
 		m->pertag->curtag = tag;
+		if (on_canvas)
+			canvas_wsov_frame(m);
 		arrange(m, false, true);
 		wsov_settle_tag_animations(m, selected);
+		cell->canvas_cam_x = m->cam_x;
+		cell->canvas_cam_y = m->cam_y;
+		cell->canvas_zoom = m->zoom;
 		wsov_capture_cell_items(cell);
 		wsov_capture_cell_bars(cell);
 	}
@@ -398,6 +412,8 @@ void wsov_capture_workspace_tags(uint32_t tags) {
 	m->tagset[1] = saved_tags[1];
 	m->pertag->curtag = saved_curtag;
 	m->pertag->prevtag = saved_prevtag;
+	if (on_canvas)
+		canvas_wsov_end(m);
 	arrange(m, false, true);
 	wsov_settle_tag_animations(m, selected);
 	m->sel = saved_sel;
@@ -660,6 +676,20 @@ bool wsov_fadeout_client_alive(const Client *client) {
 	return false;
 }
 
+static void wsov_add_ring(struct wlr_render_pass *pass, struct wlr_box b,
+						  int bx, int by, const float *color) {
+	wsov_add_rect(pass, (struct wlr_box){b.x, b.y, b.width, by}, color,
+				  WLR_RENDER_BLEND_MODE_NONE);
+	wsov_add_rect(pass,
+				  (struct wlr_box){b.x, b.y + b.height - by, b.width, by},
+				  color, WLR_RENDER_BLEND_MODE_NONE);
+	wsov_add_rect(pass, (struct wlr_box){b.x, b.y, bx, b.height}, color,
+				  WLR_RENDER_BLEND_MODE_NONE);
+	wsov_add_rect(pass,
+				  (struct wlr_box){b.x + b.width - bx, b.y, bx, b.height},
+				  color, WLR_RENDER_BLEND_MODE_NONE);
+}
+
 void wsov_render_client(struct wlr_render_pass *pass, struct wsov_cell *cell,
 						struct wsov_item *item,
 						struct wsov_render_resources *resources,
@@ -698,25 +728,27 @@ void wsov_render_client(struct wlr_render_pass *pass, struct wsov_cell *cell,
 					   : 0;
 	bool live = wsov_item_is_live(cell, item);
 	if (!wsov_item_has_effect_border(cell, item)) {
-		wsov_add_rect(pass,
-					  (struct wlr_box){window_box.x, window_box.y,
-									   window_box.width, border_y},
-					  frame_color, WLR_RENDER_BLEND_MODE_NONE);
-		wsov_add_rect(
-			pass,
-			(struct wlr_box){window_box.x,
-							 window_box.y + window_box.height - border_y,
-							 window_box.width, border_y},
-			frame_color, WLR_RENDER_BLEND_MODE_NONE);
-		wsov_add_rect(pass,
-					  (struct wlr_box){window_box.x, window_box.y, border_x,
-									   window_box.height},
-					  frame_color, WLR_RENDER_BLEND_MODE_NONE);
-		wsov_add_rect(
-			pass,
-			(struct wlr_box){window_box.x + window_box.width - border_x,
-							 window_box.y, border_x, window_box.height},
-			frame_color, WLR_RENDER_BLEND_MODE_NONE);
+		// double border: outer ring, gap, inner ring as the real frame has
+		int32_t gap = 0;
+		int32_t iw = border_x > 0 ? inner_ring_width(item->border_width, &gap)
+								  : 0;
+		if (iw > 0) {
+			int ox = MANGO_MAX(1, (int)lround((item->border_width - iw - gap) *
+											  render_scale_x));
+			int oy = MANGO_MAX(1, (int)lround((item->border_width - iw - gap) *
+											  render_scale_y));
+			int ix = (int)lround((item->border_width - iw) * render_scale_x);
+			int iy = (int)lround((item->border_width - iw) * render_scale_y);
+			wsov_add_ring(pass,
+						  (struct wlr_box){window_box.x + ix, window_box.y + iy,
+										   window_box.width - 2 * ix,
+										   window_box.height - 2 * iy},
+						  MANGO_MAX(1, border_x - ix), MANGO_MAX(1, border_y - iy),
+						  get_inner_border_color(c));
+			border_x = ox;
+			border_y = oy;
+		}
+		wsov_add_ring(pass, window_box, border_x, border_y, frame_color);
 	}
 
 	if (!item->is_snapshot && (window_box.width <= 2 || window_box.height <= 2))
@@ -726,7 +758,7 @@ void wsov_render_client(struct wlr_render_pass *pass, struct wsov_cell *cell,
 		return;
 	/* Live clients own their surface and effects. Only the frame and non-live
 	 * content belong in the offscreen cell buffer. */
-	if (live)
+	if (live || item->frame_only)
 		return;
 
 	pixman_region32_t clip;
@@ -876,21 +908,28 @@ void wsov_render_cell_part(struct wsov_cell *cell,
 						   double buffer_scale) {
 	if (!target)
 		return;
-	if (!wsov_cell_has_layer_range(cell, first_layer, end_layer)) {
+	int buffer_w = MANGO_MAX(1, (int)lround(cell->buffer_w * buffer_scale));
+	int buffer_h = MANGO_MAX(1, (int)lround(cell->buffer_h * buffer_scale));
+	// canvas background shader under the windows framed like the cell
+	struct wlr_buffer *bg = NULL;
+	if (first_layer == 0 && cell->canvas_zoom > 0.0)
+		bg = shader_bg_render_view(
+			wsov.mon, buffer_w, buffer_h, cell->canvas_cam_x,
+			cell->canvas_cam_y,
+			cell->canvas_zoom * buffer_w / MANGO_MAX(1, wsov.mon->m.width));
+	if (!bg && !wsov_cell_has_layer_range(cell, first_layer, end_layer)) {
 		wlr_scene_buffer_set_buffer(target, NULL);
 		return;
 	}
 
-	int buffer_w = MANGO_MAX(1, (int)lround(cell->buffer_w * buffer_scale));
-	int buffer_h = MANGO_MAX(1, (int)lround(cell->buffer_h * buffer_scale));
 	struct wlr_buffer *buffer =
 		wsov_acquire_cell_buffer(cell, target, buffer_w, buffer_h);
-	if (!buffer)
-		return;
-
 	struct wlr_render_pass *pass =
-		wlr_renderer_begin_buffer_pass(server.renderer, buffer, NULL);
+		buffer ? wlr_renderer_begin_buffer_pass(server.renderer, buffer, NULL)
+			   : NULL;
 	if (!pass) {
+		if (bg)
+			wlr_buffer_drop(bg);
 		return;
 	}
 
@@ -899,14 +938,26 @@ void wsov_render_cell_part(struct wsov_cell *cell,
 	resources.target = buffer;
 	wsov_add_rect(pass, (struct wlr_box){0, 0, buffer_w, buffer_h}, background,
 				  WLR_RENDER_BLEND_MODE_NONE);
+	struct wlr_texture *bg_tex =
+		bg ? wlr_texture_from_buffer(server.renderer, bg) : NULL;
+	if (bg_tex)
+		wlr_render_pass_add_texture(
+			pass, &(struct wlr_render_texture_options){
+					  .texture = bg_tex,
+					  .dst_box = {0, 0, buffer_w, buffer_h},
+					  .blend_mode = WLR_RENDER_BLEND_MODE_PREMULTIPLIED,
+				  });
 	wsov_render_cell_layer_range(pass, cell, &resources, first_layer, end_layer,
 								 buffer_scale);
 
-	if (!wlr_render_pass_submit(pass)) {
-		wsov_release_textures(&resources);
-		return;
-	}
+	bool ok = wlr_render_pass_submit(pass);
+	if (bg_tex)
+		wlr_texture_destroy(bg_tex);
+	if (bg)
+		wlr_buffer_drop(bg);
 	wsov_release_textures(&resources);
+	if (!ok)
+		return;
 
 	wlr_scene_buffer_set_buffer(target, buffer);
 	wlr_scene_buffer_set_source_box(target, NULL);

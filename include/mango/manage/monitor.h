@@ -96,6 +96,7 @@ struct Monitor {
 	// 1.0 is full overview 0.0 is real positions - animated so it glides
 	double ov_blend, ov_blend_from, ov_blend_to;
 	double ov_restore_cx, ov_restore_cy, ov_restore_zoom;
+	uint32_t canvas_cam_tag; // tag whose camera is live, see canvas_tag_camera_sync
 	int64_t cam_last_tick_ms;
 	// background shader - one offscreen buffer per output redrawn only when
 	// camera moves or output resizes - see draw/shader_bg.c
@@ -158,6 +159,9 @@ struct Pertag {
 	struct TagScrollerState *scroller_state[PERTAG_SLOTS];
 	struct TagTabState *tab_state[PERTAG_SLOTS];
 	struct TagRatioState *tag_ratio_state[PERTAG_SLOTS];
+	// canvas camera per tag: view centre and zoom
+	double cam_cx[PERTAG_SLOTS], cam_cy[PERTAG_SLOTS], cam_zoom[PERTAG_SLOTS];
+	bool cam_saved[PERTAG_SLOTS];
 };
 
 bool is_special_active(const Monitor *m);

@@ -103,6 +103,7 @@ void workspace_overview_handle_motion(double x, double y) {
 	if (!wsov.moved)
 		return;
 
+	wsov_drag_rescale(x, y);
 	if (wsov.drag_buffer) {
 		int source_width = MANGO_MAX(1, wsov.drag_source_width);
 		int source_height = MANGO_MAX(1, wsov.drag_source_height);

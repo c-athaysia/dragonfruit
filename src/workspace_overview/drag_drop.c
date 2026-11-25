@@ -1,5 +1,8 @@
 #include "mango/workspace_overview/workspace_overview_internal.h"
 
+static bool wsov_canvas_drag(void);
+static void wsov_update_canvas_drop_indicator(struct wsov_cell *cell);
+
 bool wsov_create_drop_indicator(void) {
 	if (!wsov.root)
 		return false;
@@ -54,6 +57,10 @@ void wsov_begin_drag_floating(Client *c) {
 	 * to the normal arrange path after the window is dropped on its target. */
 	if (c->isfullscreen || c->ismaximizescreen)
 		return;
+	/* Canvas windows keep their canvas size; the drop writes their canvas
+	 * position directly (wsov_canvas_drop_pos). */
+	if (canvas_active(c->mon))
+		return;
 
 	/* Match the normal move-drag path: a tiled window leaves the tiling model
 	 * as soon as the drag starts, then returns to it on drop or cancel. */
@@ -102,13 +109,76 @@ bool wsov_capture_drag_group_bars(Client *c, struct wsov_cell *bars) {
 	return captured;
 }
 
-bool wsov_create_drag_buffer(struct wsov_item *item) {
+struct wsov_drag_surface_data {
+	struct wlr_render_pass *pass;
+	pixman_region32_t *clip;
+	double ox, oy, scale;
+};
+
+static void wsov_drag_render_surface(struct wlr_surface *s, int sx, int sy,
+									 void *data) {
+	struct wsov_drag_surface_data *d = data;
+	struct wlr_texture *texture = wlr_surface_get_texture(s);
+	if (!texture || s->current.width <= 0 || s->current.height <= 0)
+		return;
+	struct wlr_fbox src;
+	wlr_surface_get_buffer_source_box(s, &src);
+	wlr_render_pass_add_texture(
+		d->pass,
+		&(struct wlr_render_texture_options){
+			.texture = texture,
+			.src_box = src,
+			.dst_box = {(int)lround(d->ox + sx * d->scale),
+						(int)lround(d->oy + sy * d->scale),
+						MANGO_MAX(1, (int)lround(s->current.width * d->scale)),
+						MANGO_MAX(1, (int)lround(s->current.height * d->scale))},
+			.clip = d->clip,
+			.transform = s->current.transform,
+			.filter_mode = WLR_SCALE_FILTER_BILINEAR,
+			.blend_mode = WLR_RENDER_BLEND_MODE_PREMULTIPLIED,
+		});
+}
+
+/* Canvas windows dragged out of a framed preview are often off the real
+ * camera, where their scene surfaces are clipped away or hidden, so draw the
+ * client's surfaces straight from their buffers. */
+static void wsov_drag_render_canvas_content(struct wlr_render_pass *pass,
+											Client *c, struct wlr_box win,
+											int border, int buffer_w,
+											int buffer_h) {
+	struct wlr_box g;
+	client_get_geometry(c, &g);
+	if (g.width <= 0 || g.height <= 0 || win.width <= 2 * border)
+		return;
+	pixman_region32_t clip;
+	pixman_region32_init_rect(&clip, 0, 0, buffer_w, buffer_h);
+	double scale = (double)(win.width - 2 * border) / g.width;
+	struct wsov_drag_surface_data d = {
+		.pass = pass,
+		.clip = &clip,
+		.ox = win.x + border - g.x * scale,
+		.oy = win.y + border - g.y * scale,
+		.scale = scale,
+	};
+	wlr_surface_for_each_surface(client_surface(c), wsov_drag_render_surface,
+								 &d);
+	pixman_region32_fini(&clip);
+}
+
+/* Zoom of the drag buffer relative to the source preview; canvas drags
+ * rebuild it at the zoom of the preview under the pointer. */
+static double wsov_drag_k = 1.0;
+
+static bool wsov_build_drag_buffer(struct wsov_item *item, double k) {
 	wsov_destroy_drag_buffer();
 	if (!item || item->box.width <= 0 || item->box.height <= 0)
 		return false;
+	wsov_drag_k = k;
 
 	int width = item->client && item->client->isfloating
 					? MANGO_MAX(1, item->box.width)
+				: item->client && canvas_active(item->client->mon)
+					? MANGO_MAX(1, (int)lround(item->box.width * k))
 					: MANGO_MIN(item->box.width, 900);
 	int workspace_width =
 		MANGO_MAX(1, item->workspace_geom.width > 0 ? item->workspace_geom.width
@@ -167,9 +237,26 @@ bool wsov_create_drag_buffer(struct wsov_item *item) {
 		.render_scale_x = render_scale,
 		.render_scale_y = render_scale,
 	};
+	bool canvas_content = item->client && !item->client->isfloating &&
+						  canvas_active(item->client->mon);
+	if (canvas_content) {
+		/* the frame is drawn as wide as the target zoom draws it */
+		drag_item.border_width = (int)lround(item->border_width * k);
+		drag_item.render_scale_x = drag_item.render_scale_y = render_scale / k;
+		drag_item.frame_only = true;
+	}
 	struct wsov_render_resources resources = {0};
 	resources.target = buffer;
 	wsov_render_client(pass, &drag_cell, &drag_item, &resources, output_scale);
+	if (canvas_content)
+		wsov_drag_render_canvas_content(
+			pass, item->client,
+			(struct wlr_box){0, (int)lround(bar_height * output_scale),
+							 buffer_width,
+							 (int)lround(window_height * output_scale)},
+			(int)lround(drag_item.border_width * render_scale / k *
+						output_scale),
+			buffer_width, buffer_height);
 	if (bar_height > 0) {
 		pixman_region32_t clip;
 		int scaled_bar_height = (int)lround(bar_height * output_scale);
@@ -212,6 +299,10 @@ bool wsov_create_drag_buffer(struct wsov_item *item) {
 	wsov.drag_source_width = item->box.width;
 	wsov.drag_source_height = item->box.height;
 	return true;
+}
+
+bool wsov_create_drag_buffer(struct wsov_item *item) {
+	return wsov_build_drag_buffer(item, 1.0);
 }
 
 void wsov_cancel_drag(void) {
@@ -329,6 +420,20 @@ void wsov_hide_drop_indicator(void) {
 void wsov_update_drop_indicator(double x, double y) {
 	struct wsov_cell *cell = NULL;
 	struct wlr_box zone;
+	if (wsov_canvas_drag()) {
+		cell = wsov_drop_cell_at(x, y);
+		if (!cell) {
+			wsov_hide_drop_indicator();
+			return;
+		}
+		if (cell->tag != wsov.target_tag) {
+			wsov.target_tag = cell->tag;
+			wsov.camera_tag = cell->tag;
+			wsov_refresh_target_selection();
+		}
+		wsov_update_canvas_drop_indicator(cell);
+		return;
+	}
 	if (!wsov_get_drop_target(x, y, &cell, NULL, &zone, NULL) ||
 		zone.width <= 0 || zone.height <= 0) {
 		wsov_hide_drop_indicator();
@@ -355,13 +460,10 @@ void wsov_update_drop_indicator(double x, double y) {
 		wlr_scene_node_raise_to_top(&wsov.drag_buffer->node);
 }
 
-void wsov_place_floating(Client *c, struct wsov_cell *cell) {
-	if (!c || !cell || !wsov.mon)
-		return;
-	int width = MANGO_MAX(64, c->float_geom.width > 0 ? c->float_geom.width
-													  : c->geom.width);
-	int height = MANGO_MAX(64, c->float_geom.height > 0 ? c->float_geom.height
-														: c->geom.height);
+/* Top-left of the drag preview in monitor-local layout units of cell, as if
+ * the cell were the whole monitor. */
+static void wsov_drag_local_origin(struct wsov_cell *cell, double *lx,
+								   double *ly) {
 	struct wlr_box cell_box = wsov_cell_layout_box(cell);
 	double scale_x = (double)wsov.mon->m.width /
 					 MANGO_MAX(1, cell_box.width - 2 * wsov_border_width());
@@ -399,8 +501,118 @@ void wsov_place_floating(Client *c, struct wsov_cell *cell) {
 		(double)(wsov.drag_preview_y + wsov.drag_bar_height) / camera_scale_y;
 	double content_x = preview_strip_x - cell_box.x - wsov_border_width();
 	double content_y = preview_strip_y - cell_box.y - wsov_border_width();
-	int nx = wsov.mon->m.x + (int)lround(content_x * scale_x);
-	int ny = wsov.mon->m.y + (int)lround(content_y * scale_y);
+	*lx = content_x * scale_x;
+	*ly = content_y * scale_y;
+}
+
+static bool wsov_canvas_drag(void) {
+	return wsov.drag_client && wsov.mon && canvas_active(wsov.mon) &&
+		   !wsov.drag_was_floating;
+}
+
+/* Canvas windows keep their canvas size, so over another tag's preview the
+ * drag shows them at that preview's zoom. */
+void wsov_drag_rescale(double x, double y) {
+	if (!wsov_canvas_drag() || !wsov.drag_buffer)
+		return;
+	struct wsov_cell *src = wsov_cell_for_tag(wsov.source_tag);
+	struct wsov_cell *dst = wsov_drop_cell_at(x, y);
+	if (!src || !dst || src->canvas_zoom <= 0.0 || dst->canvas_zoom <= 0.0)
+		return;
+	double k = dst->canvas_zoom / src->canvas_zoom;
+	if (fabs(k - wsov_drag_k) < 0.01)
+		return;
+	for (int i = 0; i < src->item_count; i++) {
+		if (src->items[i].client == wsov.drag_client) {
+			wsov_build_drag_buffer(&src->items[i], k);
+			return;
+		}
+	}
+}
+
+/* Canvas position the drag preview would land at in cell, before snapping.
+ * Previews are log-compressed overview layouts, so map through the nearest
+ * window's real canvas position rather than a single cell origin. */
+static bool wsov_canvas_drop_pos(struct wsov_cell *cell, double *cx,
+								 double *cy) {
+	Client *c = wsov.drag_client;
+	double z = cell ? cell->canvas_zoom : 0.0;
+	if (!c || z <= 0.0)
+		return false;
+	double lx, ly;
+	wsov_drag_local_origin(cell, &lx, &ly);
+	double mx = lx + c->canvas_geom.width * z / 2.0;
+	double my = ly + c->canvas_geom.height * z / 2.0;
+	struct wsov_item *anchor = NULL;
+	double best = 1e30;
+	for (int i = 0; i < cell->item_count; i++) {
+		struct wsov_item *item = &cell->items[i];
+		Client *o = item->client;
+		if (item->is_snapshot || !o || o == c || !ISFAKETILED(o) ||
+			!o->canvas_placed)
+			continue;
+		struct wlr_box b = item->workspace_geom;
+		double dx = b.x - wsov.mon->m.x + b.width / 2.0 - mx;
+		double dy = b.y - wsov.mon->m.y + b.height / 2.0 - my;
+		if (dx * dx + dy * dy < best) {
+			best = dx * dx + dy * dy;
+			anchor = item;
+		}
+	}
+	if (anchor) {
+		struct wlr_box b = anchor->workspace_geom;
+		*cx = anchor->client->canvas_geom.x + (lx - (b.x - wsov.mon->m.x)) / z;
+		*cy = anchor->client->canvas_geom.y + (ly - (b.y - wsov.mon->m.y)) / z;
+	} else {
+		*cx = cell->canvas_cam_x + lx / z;
+		*cy = cell->canvas_cam_y + ly / z;
+	}
+	return true;
+}
+
+/* Canvas snap preview: shown only where the canvas snap would move it. */
+static void wsov_update_canvas_drop_indicator(struct wsov_cell *cell) {
+	Client *c = wsov.drag_client;
+	double cx, cy;
+	if (!wsov_canvas_drop_pos(cell, &cx, &cy)) {
+		wsov_hide_drop_indicator();
+		return;
+	}
+	double sx = cx, sy = cy;
+	if (!canvas_snap_on_tags(c, wsov_tag_bit(cell->tag), &sx, &sy)) {
+		wsov_hide_drop_indicator();
+		return;
+	}
+	struct wlr_box cell_box = wsov_cell_layout_box(cell);
+	double z = cell->canvas_zoom *
+			   MANGO_MAX(1, cell_box.width - 2 * wsov_border_width()) /
+			   MANGO_MAX(1, wsov.mon->m.width);
+	int32_t x = wsov.drag_preview_x + (int32_t)lround((sx - cx) * z);
+	int32_t y = wsov.drag_preview_y + wsov.drag_bar_height +
+				(int32_t)lround((sy - cy) * z);
+	wsov_place_rect_clipped(
+		wsov.drop_fill, x, y,
+		MANGO_MAX(1, (int32_t)lround(c->canvas_geom.width * z)),
+		MANGO_MAX(1, (int32_t)lround(c->canvas_geom.height * z)), true);
+	if (!wsov.drop_fill)
+		return;
+	wsov.drop_indicator_visible = true;
+	wlr_scene_node_raise_to_top(&wsov.drop_fill->node);
+	if (wsov.drag_buffer)
+		wlr_scene_node_raise_to_top(&wsov.drag_buffer->node);
+}
+
+void wsov_place_floating(Client *c, struct wsov_cell *cell) {
+	if (!c || !cell || !wsov.mon)
+		return;
+	int width = MANGO_MAX(64, c->float_geom.width > 0 ? c->float_geom.width
+													  : c->geom.width);
+	int height = MANGO_MAX(64, c->float_geom.height > 0 ? c->float_geom.height
+														: c->geom.height);
+	double lx, ly;
+	wsov_drag_local_origin(cell, &lx, &ly);
+	int nx = wsov.mon->m.x + (int)lround(lx);
+	int ny = wsov.mon->m.y + (int)lround(ly);
 	c->float_geom = (struct wlr_box){nx, ny, width, height};
 	resize(c, c->float_geom,
 		   (ResizeOpts){.interact = 0, .skip_animation = true});
@@ -419,6 +631,12 @@ void wsov_finish_drop(double x, double y) {
 	struct wsov_item *over = NULL;
 	wsov_get_drop_target(x, y, &target, &over, NULL, NULL);
 	bool was_floating = wsov.drag_was_floating;
+	double canvas_x = 0.0, canvas_y = 0.0;
+	bool canvas_drop = wsov_canvas_drag() &&
+					   wsov_canvas_drop_pos(target, &canvas_x, &canvas_y);
+	if (canvas_drop)
+		canvas_snap_on_tags(c, wsov_tag_bit(target->tag), &canvas_x,
+							&canvas_y);
 
 	uint32_t source_bit = wsov_tag_bit(wsov.source_tag);
 	uint32_t target_bit = wsov_tag_bit(target->tag);
@@ -441,8 +659,13 @@ void wsov_finish_drop(double x, double y) {
 	clear_fullscreen_for_incoming_tiled_client(c);
 
 	client_view_on_monitor(&(Arg){.ui = target_bit}, false, wsov.mon, false);
-	if (over)
+	if (canvas_drop) {
+		c->canvas_geom.x = canvas_x;
+		c->canvas_geom.y = canvas_y;
+		c->canvas_placed = true;
+	} else if (over) {
 		pointer_place_drag_tile_on(c, over->client);
+	}
 	if (was_floating)
 		wsov_place_floating(c, target);
 

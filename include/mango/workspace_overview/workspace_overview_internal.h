@@ -11,6 +11,8 @@
 #include "mango/input/keyboard.h"
 #include "mango/input/pointer.h"
 #include "mango/layout/arrange.h"
+#include "mango/layout/canvas.h"
+#include "mango/draw/shader_bg.h"
 #include "mango/layout/layout.h"
 #include "mango/layout/tag_ratio.h"
 #include "mango/manage/client.h"
@@ -56,6 +58,7 @@ struct wsov_item {
 	uint32_t layer;
 	int32_t border_width;
 	bool is_snapshot;
+	bool frame_only; // draw the frame only; content is drawn by the caller
 	struct wlr_box box;
 	struct wlr_box workspace_geom;
 	double render_scale;
@@ -143,6 +146,8 @@ struct wsov_background_effects;
 
 struct wsov_cell {
 	uint32_t tag;
+	// canvas camera the preview was framed with (workspace pixels)
+	double canvas_cam_x, canvas_cam_y, canvas_zoom;
 	struct wlr_box box;
 	struct wlr_scene_rect *frame;
 	struct wlr_scene_rect *border[4];
@@ -549,6 +554,7 @@ void wsov_hide_drop_indicator(void);
 void wsov_update_drop_indicator(double x, double y);
 void wsov_place_floating(Client *c, struct wsov_cell *cell);
 void wsov_finish_drop(double x, double y);
+void wsov_drag_rescale(double x, double y);
 bool workspace_overview_handle_button(
 	const struct wlr_pointer_button_event *event);
 bool workspace_overview_handle_axis(const struct wlr_pointer_axis_event *event);

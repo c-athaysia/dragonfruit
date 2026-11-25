@@ -3,6 +3,7 @@
 
 #include "mango/common/types.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 // procedural canvas background
 // user glsl fragment shader gets drawn to an offscreen buffer at the bottom of
@@ -24,6 +25,11 @@ void shader_bg_mark_dirty(void);
 // draws if it needs to, true if it drew
 bool shader_bg_update(Monitor *m);
 
+// the background as a camera at cam_x cam_y zoom would see it into a new
+// w by h buffer, for previews null when there is no shader caller drops it
+struct wlr_buffer *shader_bg_render_view(Monitor *m, int32_t w, int32_t h,
+										 double cam_x, double cam_y,
+										 double zoom);
 // frees this monitors buffer and scene node
 void shader_bg_finish_monitor(Monitor *m);
 

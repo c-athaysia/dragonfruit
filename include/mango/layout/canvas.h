@@ -92,6 +92,13 @@ void canvas_overview_layout(Monitor *m);
 
 // leaves overview and goes to one window
 void canvas_overview_pick(Client *c);
+void canvas_tag_camera_sync(Monitor *m);
+void canvas_wsov_begin(Monitor *m);
+void canvas_wsov_frame(Monitor *m);
+void canvas_wsov_end(Monitor *m);
+bool canvas_snap_on_tags(Client *c, uint32_t tags, double *nx, double *ny);
+struct wlr_box canvas_preview_box(Client *c, double cam_x, double cam_y,
+								  double z);
 
 // canvas_overview with jump letters on the windows
 int32_t canvas_jump(const Arg *arg);

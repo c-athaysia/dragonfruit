@@ -526,6 +526,7 @@ static void canvas_snap_edges(Client *c, Monitor *m, double *x, double *y) {
 // overwrites it call it after canvas_commit_box() or the rounded box undoes the
 // exact position where a frame would rest if released now in canvas units and
 // false if no snap
+static bool canvas_snap_point(Client *c, Monitor *m, double *nx, double *ny);
 static bool canvas_snap_target(Client *c, struct wlr_box box, double *nx,
 							   double *ny) {
 	if (!c || !c->mon || !canvas_active(c->mon) || !ISFAKETILED(c))
@@ -536,6 +537,11 @@ static bool canvas_snap_target(Client *c, struct wlr_box box, double *nx,
 	double z = m->zoom > 0.0 ? m->zoom : 1.0;
 	*nx = (double)(box.x - m->m.x) / z + m->cam_x;
 	*ny = (double)(box.y - m->m.y) / z + m->cam_y;
+	return canvas_snap_point(c, m, nx, ny);
+}
+
+// snaps canvas position nx ny for c against windows visible on m
+static bool canvas_snap_point(Client *c, Monitor *m, double *nx, double *ny) {
 	double ox = *nx, oy = *ny;
 	canvas_snap_edges(c, m, nx, ny);
 	if (*nx == ox && *ny == oy)
@@ -566,6 +572,19 @@ static bool canvas_snap_target(Client *c, struct wlr_box box, double *nx,
 		}
 	}
 	return true;
+}
+
+// workspace overview drop
+// snaps against the windows of the tag it lands on not the shown one
+bool canvas_snap_on_tags(Client *c, uint32_t tags, double *nx, double *ny) {
+	if (!c || !c->mon || !canvas_active(c->mon) || !ISFAKETILED(c))
+		return false;
+	Monitor *m = c->mon;
+	uint32_t saved = m->tagset[m->seltags];
+	m->tagset[m->seltags] = tags;
+	bool snapped = canvas_snap_point(c, m, nx, ny);
+	m->tagset[m->seltags] = saved;
+	return snapped;
 }
 
 void canvas_snap_layout(Client *c, struct wlr_box *box) {
@@ -1142,6 +1161,8 @@ void canvas(Monitor *m) {
 
 	if (!m)
 		return;
+
+	canvas_tag_camera_sync(m);
 
 	// overview positions are made for the whole set at once
 	// relaxation is pairwise so no doing it one client at a time
@@ -2488,6 +2509,135 @@ static bool canvas_overview_fit(Monitor *m) {
 	m->cam_last_tick_ms = get_now_in_ms();
 	wlr_output_schedule_frame(m->wlr_output);
 	return true;
+}
+
+// each tag keeps its own camera
+// what gets saved is where the camera is going, not where it is mid flight,
+// and with the overview open the camera to come back to
+static void canvas_tag_cam_save(Monitor *m) {
+	uint32_t t = m->canvas_cam_tag;
+	if (t >= PERTAG_SLOTS)
+		return;
+	struct Pertag *p = m->pertag;
+	if (m->canvas_overview) {
+		p->cam_cx[t] = m->ov_restore_cx;
+		p->cam_cy[t] = m->ov_restore_cy;
+		p->cam_zoom[t] = m->ov_restore_zoom;
+	} else if (m->zoom_animating) {
+		p->cam_cx[t] = m->zoom_anchor_cx;
+		p->cam_cy[t] = m->zoom_anchor_cy;
+		p->cam_zoom[t] = m->zoom_target;
+	} else {
+		canvas_view_centre(m, &p->cam_cx[t], &p->cam_cy[t]);
+		p->cam_zoom[t] = m->zoom;
+	}
+	p->cam_saved[t] = true;
+}
+
+static void canvas_tag_cam_load(Monitor *m) {
+	uint32_t t = m->canvas_cam_tag;
+	struct Pertag *p = m->pertag;
+	if (t >= PERTAG_SLOTS || !p->cam_saved[t])
+		return;
+	m->cam_vx = m->cam_vy = 0.0;
+	m->zoom_animating = false;
+	if (m->canvas_overview) {
+		// the overview stays open and reframes the new tag
+		m->ov_restore_cx = p->cam_cx[t];
+		m->ov_restore_cy = p->cam_cy[t];
+		m->ov_restore_zoom = p->cam_zoom[t];
+		m->ov_blend_from = m->ov_blend;
+		m->ov_blend_to = 1.0;
+		canvas_overview_fit(m);
+		return;
+	}
+	m->ov_blend = m->ov_blend_from = m->ov_blend_to = 0.0;
+	m->zoom = m->zoom_target = p->cam_zoom[t];
+	canvas_cam_for_centre(m, p->cam_cx[t], p->cam_cy[t], m->zoom);
+	wlr_output_schedule_frame(m->wlr_output);
+}
+
+// called from canvas() so every path that changes curtag is covered
+// a tag never visited starts from the camera you leave
+void canvas_tag_camera_sync(Monitor *m) {
+	uint32_t t = m->pertag->curtag;
+	uint32_t old = m->canvas_cam_tag;
+	if (t == old || t >= PERTAG_SLOTS)
+		return;
+	canvas_tag_cam_save(m);
+	struct Pertag *p = m->pertag;
+	if (!p->cam_saved[t] && old < PERTAG_SLOTS) {
+		p->cam_cx[t] = p->cam_cx[old];
+		p->cam_cy[t] = p->cam_cy[old];
+		p->cam_zoom[t] = p->cam_zoom[old];
+		p->cam_saved[t] = true;
+	}
+	m->canvas_cam_tag = t;
+	canvas_tag_cam_load(m);
+}
+
+// workspace overview capture
+// it arranges every tag in turn, framed like the canvas overview so no window
+// is off its preview, then puts the real camera back
+void canvas_wsov_begin(Monitor *m) {
+	canvas_tag_camera_sync(m);
+	canvas_tag_cam_save(m);
+	// framing lays every tag out at preview zoom keep the real boxes so
+	// the restore arrange doesnt configure hidden windows at preview size
+	Client *c;
+	wl_list_for_each(c, &server.clients, link) {
+		if (c->mon == m)
+			c->canvas_wsov_geom = c->geom;
+	}
+}
+
+void canvas_wsov_frame(Monitor *m) {
+	m->canvas_cam_tag = m->pertag->curtag;
+	m->ov_blend = m->ov_blend_from = m->ov_blend_to = 1.0;
+	m->cam_vx = m->cam_vy = 0.0;
+	if (canvas_overview_fit(m)) {
+		m->zoom_animating = false;
+		m->zoom = m->zoom_target;
+		canvas_cam_for_centre(m, m->zoom_anchor_cx, m->zoom_anchor_cy,
+							  m->zoom);
+	} else {
+		m->zoom_animating = false;
+		m->zoom = 1.0;
+		canvas_cam_for_centre(m, 0.0, 0.0, 1.0);
+	}
+}
+
+// box c has in a wsov preview framed with that camera
+// same math as canvas() at ov_blend 1 so recaptures between full captures
+// agree with them, animation.current only knows the real camera
+struct wlr_box canvas_preview_box(Client *c, double cam_x, double cam_y,
+								  double z) {
+	Monitor *m = c->mon;
+	double saved = m->zoom;
+	m->zoom = z; // border width scales with the camera
+	int32_t cbw = (int32_t)canvas_frame_bw(c);
+	m->zoom = saved;
+	double inner = 2.0 * config.borderpx;
+	return (struct wlr_box){
+		.x = m->m.x + (int32_t)lround((c->ov_x - cam_x) * z),
+		.y = m->m.y + (int32_t)lround((c->ov_y - cam_y) * z),
+		.width = (int32_t)lround((c->canvas_geom.width - inner) * z) + 2 * cbw,
+		.height =
+			(int32_t)lround((c->canvas_geom.height - inner) * z) + 2 * cbw,
+	};
+}
+
+void canvas_wsov_end(Monitor *m) {
+	Client *c;
+	wl_list_for_each(c, &server.clients, link) {
+		if (c->mon == m && c->canvas_wsov_geom.width > 0)
+			c->geom = c->canvas_wsov_geom;
+	}
+	m->canvas_cam_tag = m->pertag->curtag;
+	if (m->canvas_cam_tag < PERTAG_SLOTS && m->pertag->cam_saved[m->canvas_cam_tag])
+		canvas_tag_cam_load(m);
+	else
+		m->ov_blend = m->ov_blend_from = m->ov_blend_to = 0.0;
 }
 
 // canvas_overview toggles
