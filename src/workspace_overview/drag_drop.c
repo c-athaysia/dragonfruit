@@ -168,6 +168,12 @@ static void wsov_drag_render_canvas_content(struct wlr_render_pass *pass,
 /* Zoom of the drag buffer relative to the source preview; canvas drags
  * rebuild it at the zoom of the preview under the pointer. */
 static double wsov_drag_k = 1.0;
+/* Shown zoom eases from drag_k_from to drag_k_to; the buffer built at
+ * wsov_drag_k is scaled by its dest size meanwhile. */
+static double drag_k_from = 1.0, drag_k_to = 1.0, drag_k_shown = 1.0;
+static bool drag_k_anim;
+static struct timespec drag_k_start;
+static int drag_built_w, drag_built_h, drag_built_bar;
 
 static bool wsov_build_drag_buffer(struct wsov_item *item, double k) {
 	wsov_destroy_drag_buffer();
@@ -293,15 +299,17 @@ static bool wsov_build_drag_buffer(struct wsov_item *item, double k) {
 	wlr_scene_buffer_set_filter_mode(wsov.drag_buffer,
 									 WLR_SCALE_FILTER_BILINEAR);
 	wlr_scene_node_raise_to_top(&wsov.drag_buffer->node);
-	wsov.drag_bar_height = bar_height;
-	wsov.drag_width = width;
-	wsov.drag_height = height;
+	wsov.drag_bar_height = drag_built_bar = bar_height;
+	wsov.drag_width = drag_built_w = width;
+	wsov.drag_height = drag_built_h = height;
 	wsov.drag_source_width = item->box.width;
 	wsov.drag_source_height = item->box.height;
 	return true;
 }
 
 bool wsov_create_drag_buffer(struct wsov_item *item) {
+	drag_k_from = drag_k_to = drag_k_shown = 1.0;
+	drag_k_anim = false;
 	return wsov_build_drag_buffer(item, 1.0);
 }
 
@@ -415,6 +423,15 @@ void wsov_hide_drop_indicator(void) {
 	wsov.drop_indicator_visible = false;
 	if (wsov.drop_fill)
 		wlr_scene_node_set_enabled(&wsov.drop_fill->node, false);
+	canvas_drop_preview_hide();
+}
+
+/* Screen pixels per canvas unit in a cell's preview. */
+static double wsov_cell_canvas_scale(struct wsov_cell *cell) {
+	struct wlr_box cell_box = wsov_cell_layout_box(cell);
+	return cell->canvas_zoom *
+		   MANGO_MAX(1, cell_box.width - 2 * wsov_border_width()) /
+		   MANGO_MAX(1, wsov.mon->m.width);
 }
 
 void wsov_update_drop_indicator(double x, double y) {
@@ -519,15 +536,53 @@ void wsov_drag_rescale(double x, double y) {
 	struct wsov_cell *dst = wsov_drop_cell_at(x, y);
 	if (!src || !dst || src->canvas_zoom <= 0.0 || dst->canvas_zoom <= 0.0)
 		return;
-	double k = dst->canvas_zoom / src->canvas_zoom;
-	if (fabs(k - wsov_drag_k) < 0.01)
+	struct wsov_item *item = NULL;
+	for (int i = 0; i < src->item_count; i++)
+		if (src->items[i].client == wsov.drag_client)
+			item = &src->items[i];
+	if (!item)
 		return;
-	for (int i = 0; i < src->item_count; i++) {
-		if (src->items[i].client == wsov.drag_client) {
-			wsov_build_drag_buffer(&src->items[i], k);
+	double k = dst->canvas_zoom / src->canvas_zoom;
+	if (fabs(k - drag_k_to) >= 0.01) {
+		drag_k_from = drag_k_shown;
+		drag_k_to = k;
+		drag_k_anim = config.animations;
+		clock_gettime(CLOCK_MONOTONIC, &drag_k_start);
+		if (drag_k_anim)
+			wsov_attach_frame_listener();
+		// build at the larger end so the ease only scales down
+		double build = fmax(drag_k_from, drag_k_to);
+		if (drag_k_anim && fabs(build - wsov_drag_k) >= 0.01 &&
+			!wsov_build_drag_buffer(item, build))
 			return;
+	}
+	if (drag_k_anim) {
+		double t = wsov_elapsed_ms(&drag_k_start) /
+				   MANGO_MAX(1.0, (double)animation_curve_duration_ms(
+									  &config.animation_curve_wsov_move,
+									  config.animation_duration_wsov_move));
+		if (t >= 1.0) {
+			drag_k_anim = false;
+		} else {
+			double e = animation_curve_ease(&config.animation_curve_wsov_move,
+											fmax(0.0, t));
+			drag_k_shown = drag_k_from + (drag_k_to - drag_k_from) * e;
 		}
 	}
+	if (!drag_k_anim) {
+		drag_k_shown = drag_k_to;
+		// settled, redraw sharp at the final zoom
+		if (fabs(drag_k_to - wsov_drag_k) >= 0.001)
+			wsov_build_drag_buffer(item, drag_k_to);
+	}
+	double f = drag_k_shown / wsov_drag_k;
+	wsov.drag_width = MANGO_MAX(1, (int)lround(drag_built_w * f));
+	wsov.drag_height = MANGO_MAX(1, (int)lround(drag_built_h * f));
+	wsov.drag_bar_height = (int)lround(drag_built_bar * f);
+}
+
+bool wsov_drag_scale_animating(void) {
+	return wsov.drag_buffer && drag_k_anim;
 }
 
 /* Canvas position the drag preview would land at in cell, before snapping.
@@ -579,27 +634,24 @@ static void wsov_update_canvas_drop_indicator(struct wsov_cell *cell) {
 		return;
 	}
 	double sx = cx, sy = cy;
-	if (!canvas_snap_on_tags(c, wsov_tag_bit(cell->tag), &sx, &sy)) {
+	double z = wsov_cell_canvas_scale(cell);
+	if (!canvas_snap_on_tags(c, wsov_tag_bit(cell->tag), z, &sx, &sy)) {
 		wsov_hide_drop_indicator();
 		return;
 	}
-	struct wlr_box cell_box = wsov_cell_layout_box(cell);
-	double z = cell->canvas_zoom *
-			   MANGO_MAX(1, cell_box.width - 2 * wsov_border_width()) /
-			   MANGO_MAX(1, wsov.mon->m.width);
-	int32_t x = wsov.drag_preview_x + (int32_t)lround((sx - cx) * z);
-	int32_t y = wsov.drag_preview_y + wsov.drag_bar_height +
-				(int32_t)lround((sy - cy) * z);
-	wsov_place_rect_clipped(
-		wsov.drop_fill, x, y,
-		MANGO_MAX(1, (int32_t)lround(c->canvas_geom.width * z)),
-		MANGO_MAX(1, (int32_t)lround(c->canvas_geom.height * z)), true);
-	if (!wsov.drop_fill)
-		return;
+	// the canvas drop box, as on the canvas, at the preview's scale
+	if (wsov.drop_fill)
+		wlr_scene_node_set_enabled(&wsov.drop_fill->node, false);
+	struct wlr_box b = {
+		.x = wsov.mon->m.x + wsov.drag_preview_x +
+			 (int32_t)lround((sx - cx) * z),
+		.y = wsov.mon->m.y + wsov.drag_preview_y + wsov.drag_bar_height +
+			 (int32_t)lround((sy - cy) * z),
+		.width = MANGO_MAX(1, (int32_t)lround(c->canvas_geom.width * z)),
+		.height = MANGO_MAX(1, (int32_t)lround(c->canvas_geom.height * z)),
+	};
+	canvas_wsov_drop_show(server.layers[LyrSpecialOverlay], b, z);
 	wsov.drop_indicator_visible = true;
-	wlr_scene_node_raise_to_top(&wsov.drop_fill->node);
-	if (wsov.drag_buffer)
-		wlr_scene_node_raise_to_top(&wsov.drag_buffer->node);
 }
 
 void wsov_place_floating(Client *c, struct wsov_cell *cell) {
@@ -635,7 +687,8 @@ void wsov_finish_drop(double x, double y) {
 	bool canvas_drop = wsov_canvas_drag() &&
 					   wsov_canvas_drop_pos(target, &canvas_x, &canvas_y);
 	if (canvas_drop)
-		canvas_snap_on_tags(c, wsov_tag_bit(target->tag), &canvas_x,
+		canvas_snap_on_tags(c, wsov_tag_bit(target->tag),
+							wsov_cell_canvas_scale(target), &canvas_x,
 							&canvas_y);
 
 	uint32_t source_bit = wsov_tag_bit(wsov.source_tag);

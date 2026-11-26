@@ -148,6 +148,10 @@ struct wsov_cell {
 	uint32_t tag;
 	// canvas camera the preview was framed with (workspace pixels)
 	double canvas_cam_x, canvas_cam_y, canvas_zoom;
+	// the tag's real camera and the overview framing as view centre and zoom,
+	// canvas_blend says where between them the camera above is (0 real)
+	double real_cx, real_cy, real_zoom, log_cx, log_cy, log_zoom;
+	double canvas_blend;
 	struct wlr_box box;
 	struct wlr_scene_rect *frame;
 	struct wlr_scene_rect *border[4];
@@ -470,6 +474,7 @@ void wsov_render_cell_part(struct wsov_cell *cell,
 						   uint32_t first_layer, uint32_t end_layer,
 						   double buffer_scale);
 void wsov_prepare_cell_for_render(struct wsov_cell *cell);
+void wsov_canvas_blend_cells(double e);
 void wsov_render_cell_raw(struct wsov_cell *cell, double buffer_scale);
 bool wsov_render_cell(struct wsov_cell *cell, double buffer_scale);
 bool wsov_refresh_animated_cells(void);
@@ -555,6 +560,8 @@ void wsov_update_drop_indicator(double x, double y);
 void wsov_place_floating(Client *c, struct wsov_cell *cell);
 void wsov_finish_drop(double x, double y);
 void wsov_drag_rescale(double x, double y);
+bool wsov_drag_scale_animating(void);
+void wsov_drag_follow(double x, double y);
 bool workspace_overview_handle_button(
 	const struct wlr_pointer_button_event *event);
 bool workspace_overview_handle_axis(const struct wlr_pointer_axis_event *event);

@@ -429,9 +429,13 @@ static bool canvas_in_group(Client *c, Client *o) {
 
 // nearest gap each way (left right up down in s) from one window at bx by to
 // the windows outside its group - only lowers what s already holds
+// snap reach multiplier, the workspace overview previews are drawn so small
+// that snap_distance canvas units is a few pixels there
+static double snap_reach_scale = 1.0;
+
 static void canvas_snap_dists(Client *c, Monitor *m, double bx, double by,
 							  double s[4]) {
-	double thr = (double)config.snap_distance;
+	double thr = (double)config.snap_distance * snap_reach_scale;
 	double w = c->canvas_geom.width, h = c->canvas_geom.height;
 	double gh = canvas_gap_h(m), gv = canvas_gap_v(m);
 	const double reach_h = gh + thr, reach_v = gv + thr;
@@ -492,7 +496,7 @@ static void canvas_snap_dists(Client *c, Monitor *m, double bx, double by,
 static void canvas_snap_edges(Client *c, Monitor *m, double *x, double *y) {
 	if (!config.enable_floating_snap)
 		return;
-	double thr = (double)config.snap_distance;
+	double thr = (double)config.snap_distance * snap_reach_scale;
 	if (thr <= 0.0)
 		return;
 
@@ -576,13 +580,18 @@ static bool canvas_snap_point(Client *c, Monitor *m, double *nx, double *ny) {
 
 // workspace overview drop
 // snaps against the windows of the tag it lands on not the shown one
-bool canvas_snap_on_tags(Client *c, uint32_t tags, double *nx, double *ny) {
+// z is the preview's screen pixels per canvas unit, reach is snap_distance
+// screen pixels there like it is on the canvas at zoom 1
+bool canvas_snap_on_tags(Client *c, uint32_t tags, double z, double *nx,
+						 double *ny) {
 	if (!c || !c->mon || !canvas_active(c->mon) || !ISFAKETILED(c))
 		return false;
 	Monitor *m = c->mon;
 	uint32_t saved = m->tagset[m->seltags];
 	m->tagset[m->seltags] = tags;
+	snap_reach_scale = z > 0.0 && z < 1.0 ? 1.0 / z : 1.0;
 	bool snapped = canvas_snap_point(c, m, nx, ny);
+	snap_reach_scale = 1.0;
 	m->tagset[m->seltags] = saved;
 	return snapped;
 }
@@ -674,9 +683,9 @@ static void premultiply(const float in[4], float out[4]) {
 // unset style fields use the window option and border width and radius follow
 // zoom
 static void canvas_box_decorate(canvas_box *b, const canvas_box_style *st,
-								const float fill[4], Monitor *m, int32_t w,
+								const float fill[4], double zoom, int32_t w,
 								int32_t h) {
-	double z = m->zoom > 0.0 && m->zoom < 1.0 ? m->zoom : 1.0;
+	double z = zoom > 0.0 && zoom < 1.0 ? zoom : 1.0;
 	// border_width is the outer ring like border_px, inner_border_px and
 	// inner_border_gap add a second ring inside it the same as on a window
 	int32_t bw = st->border_width, iw = 0, gap = 0;
@@ -886,10 +895,25 @@ static void canvas_drop_show(size_t i, Client *c, Monitor *m,
 	if (!d || !c->scene)
 		return;
 	canvas_box_ensure(d, c->scene->node.parent);
-	canvas_box_decorate(d, &config.canvas_drop, config.dropcolor, m, b.width,
-						b.height);
+	canvas_box_decorate(d, &config.canvas_drop, config.dropcolor, m->zoom,
+						b.width, b.height);
 	wlr_scene_node_set_position(&d->tree->node, b.x, b.y);
 	wlr_scene_node_place_above(&d->tree->node, &c->scene->node);
+	wlr_scene_node_set_enabled(&d->tree->node, true);
+}
+
+// workspace overview drop preview, box b in screen pixels at preview zoom z
+// parented next to the overview so it outlives a rebuild of the overview tree
+void canvas_wsov_drop_show(struct wlr_scene_tree *parent, struct wlr_box b,
+						   double z) {
+	canvas_box *d = canvas_drop_box(0);
+	if (!d)
+		return;
+	canvas_box_ensure(d, parent);
+	canvas_box_decorate(d, &config.canvas_drop, config.dropcolor, z, b.width,
+						b.height);
+	wlr_scene_node_set_position(&d->tree->node, b.x, b.y);
+	wlr_scene_node_raise_to_top(&d->tree->node);
 	wlr_scene_node_set_enabled(&d->tree->node, true);
 }
 
@@ -984,7 +1008,7 @@ void canvas_select_motion(double x, double y) {
 						config.canvas_select.fill_set
 							? config.canvas_select.fill
 							: config.dropcolor,
-						m, bw, bh);
+						m->zoom, bw, bh);
 	wlr_scene_node_set_position(&selbox.tree->node, bx, by);
 	wlr_scene_node_raise_to_top(&selbox.tree->node);
 	wlr_scene_node_set_enabled(&selbox.tree->node, true);
@@ -2557,6 +2581,45 @@ static void canvas_tag_cam_load(Monitor *m) {
 	wlr_output_schedule_frame(m->wlr_output);
 }
 
+static bool wsov_capturing;
+static uint32_t wsov_real_tag = UINT32_MAX;
+
+// a tag switch moves the camera at once, the background glides from where it
+// was last drawn to the new camera over the tag animation instead of jumping
+static void canvas_bg_glide_start(Monitor *m) {
+	// the workspace overview already drew the shader at the new camera
+	if (wsov_capturing || workspace_overview_is_active() || !config.animations ||
+		!config.animation_duration_tag || m->bg_w <= 0 || m->bg_zoom <= 0.0)
+		return;
+	m->bg_glide_cx = m->bg_cam_x + view_off_x(m) / m->bg_zoom;
+	m->bg_glide_cy = m->bg_cam_y + view_off_y(m) / m->bg_zoom;
+	m->bg_glide_zoom = m->bg_zoom;
+	m->bg_glide_start = get_now_in_ms();
+	m->bg_glide = true;
+}
+
+// camera the background is drawn with, true while it is still gliding
+bool canvas_bg_camera(Monitor *m, double *cam_x, double *cam_y, double *zoom) {
+	*cam_x = m->cam_x, *cam_y = m->cam_y, *zoom = m->zoom;
+	if (!m->bg_glide)
+		return false;
+	double t = (double)(get_now_in_ms() - m->bg_glide_start) /
+			   config.animation_duration_tag;
+	if (t >= 1.0 || !config.animation_duration_tag) {
+		m->bg_glide = false;
+		return false;
+	}
+	double e = find_animation_curve_at(t, TAG);
+	double cx, cy;
+	canvas_view_centre(m, &cx, &cy);
+	cx = m->bg_glide_cx + (cx - m->bg_glide_cx) * e;
+	cy = m->bg_glide_cy + (cy - m->bg_glide_cy) * e;
+	*zoom = m->bg_glide_zoom + (m->zoom - m->bg_glide_zoom) * e;
+	*cam_x = cx - view_off_x(m) / *zoom;
+	*cam_y = cy - view_off_y(m) / *zoom;
+	return true;
+}
+
 // called from canvas() so every path that changes curtag is covered
 // a tag never visited starts from the camera you leave
 void canvas_tag_camera_sync(Monitor *m) {
@@ -2573,6 +2636,8 @@ void canvas_tag_camera_sync(Monitor *m) {
 		p->cam_saved[t] = true;
 	}
 	m->canvas_cam_tag = t;
+	if (!m->canvas_overview)
+		canvas_bg_glide_start(m);
 	canvas_tag_cam_load(m);
 }
 
@@ -2581,7 +2646,9 @@ void canvas_tag_camera_sync(Monitor *m) {
 // is off its preview, then puts the real camera back
 void canvas_wsov_begin(Monitor *m) {
 	canvas_tag_camera_sync(m);
+	wsov_capturing = true;
 	canvas_tag_cam_save(m);
+	wsov_real_tag = m->canvas_cam_tag;
 	// framing lays every tag out at preview zoom keep the real boxes so
 	// the restore arrange doesnt configure hidden windows at preview size
 	Client *c;
@@ -2608,23 +2675,66 @@ void canvas_wsov_frame(Monitor *m) {
 }
 
 // box c has in a wsov preview framed with that camera
-// same math as canvas() at ov_blend 1 so recaptures between full captures
-// agree with them, animation.current only knows the real camera
+// same math as canvas() so recaptures between full captures agree with them,
+// animation.current only knows the real camera
+// e 0 is the real layout and 1 the overview one, opening the overview blends it
 struct wlr_box canvas_preview_box(Client *c, double cam_x, double cam_y,
-								  double z) {
+								  double z, double e) {
 	Monitor *m = c->mon;
 	double saved = m->zoom;
 	m->zoom = z; // border width scales with the camera
 	int32_t cbw = (int32_t)canvas_frame_bw(c);
 	m->zoom = saved;
 	double inner = 2.0 * config.borderpx;
+	double px = c->canvas_geom.x + (c->ov_x - c->canvas_geom.x) * e;
+	double py = c->canvas_geom.y + (c->ov_y - c->canvas_geom.y) * e;
 	return (struct wlr_box){
-		.x = m->m.x + (int32_t)lround((c->ov_x - cam_x) * z),
-		.y = m->m.y + (int32_t)lround((c->ov_y - cam_y) * z),
+		.x = m->m.x + (int32_t)lround((px - cam_x) * z),
+		.y = m->m.y + (int32_t)lround((py - cam_y) * z),
 		.width = (int32_t)lround((c->canvas_geom.width - inner) * z) + 2 * cbw,
 		.height =
 			(int32_t)lround((c->canvas_geom.height - inner) * z) + 2 * cbw,
 	};
+}
+
+// view centre and zoom tag t is shown with, a tag never visited gets the
+// camera you are on like canvas_tag_camera_sync gives it
+void canvas_tag_camera(Monitor *m, uint32_t t, double *cx, double *cy,
+					   double *zoom) {
+	struct Pertag *p = m->pertag;
+	if (!wsov_capturing && t == m->canvas_cam_tag)
+		canvas_tag_cam_save(m);
+	uint32_t s = t < PERTAG_SLOTS && p->cam_saved[t]
+					 ? t
+					 : (wsov_capturing ? wsov_real_tag : m->canvas_cam_tag);
+	if (s < PERTAG_SLOTS && p->cam_saved[s]) {
+		*cx = p->cam_cx[s], *cy = p->cam_cy[s], *zoom = p->cam_zoom[s];
+		return;
+	}
+	canvas_view_centre(m, cx, cy);
+	*zoom = m->zoom;
+}
+
+void canvas_cam_at(Monitor *m, double cx, double cy, double zoom,
+				   double *cam_x, double *cam_y) {
+	*cam_x = cx - view_off_x(m) / zoom;
+	*cam_y = cy - view_off_y(m) / zoom;
+}
+
+// tag t centred on c at the zoom the tag was left at, picking a window in the
+// workspace overview lands like canvas_overview_pick
+void canvas_tag_camera_focus(Monitor *m, uint32_t t, Client *c) {
+	if (t >= PERTAG_SLOTS || !c || !c->canvas_placed)
+		return;
+	double cx, cy, z;
+	canvas_tag_camera(m, t, &cx, &cy, &z);
+	struct Pertag *p = m->pertag;
+	p->cam_cx[t] = c->canvas_geom.x + c->canvas_geom.width / 2.0;
+	p->cam_cy[t] = c->canvas_geom.y + c->canvas_geom.height / 2.0;
+	p->cam_zoom[t] = z;
+	p->cam_saved[t] = true;
+	if (t == m->canvas_cam_tag)
+		canvas_tag_cam_load(m);
 }
 
 void canvas_wsov_end(Monitor *m) {
@@ -2633,6 +2743,7 @@ void canvas_wsov_end(Monitor *m) {
 		if (c->mon == m && c->canvas_wsov_geom.width > 0)
 			c->geom = c->canvas_wsov_geom;
 	}
+	wsov_capturing = false;
 	m->canvas_cam_tag = m->pertag->curtag;
 	if (m->canvas_cam_tag < PERTAG_SLOTS && m->pertag->cam_saved[m->canvas_cam_tag])
 		canvas_tag_cam_load(m);

@@ -103,6 +103,14 @@ void workspace_overview_handle_motion(double x, double y) {
 	if (!wsov.moved)
 		return;
 
+	wsov_drag_follow(x, y);
+	wsov_update_drag_scroll(x, y);
+	wsov_update_drop_indicator(x, y);
+	wlr_output_schedule_frame(wsov.mon->wlr_output);
+}
+
+/* Scales and places the drag image under the pointer. */
+void wsov_drag_follow(double x, double y) {
 	wsov_drag_rescale(x, y);
 	if (wsov.drag_buffer) {
 		int source_width = MANGO_MAX(1, wsov.drag_source_width);
@@ -120,9 +128,6 @@ void workspace_overview_handle_motion(double x, double y) {
 								  wsov.drag_preview_y, wsov.drag_width,
 								  wsov.drag_height);
 	}
-	wsov_update_drag_scroll(x, y);
-	wsov_update_drop_indicator(x, y);
-	wlr_output_schedule_frame(wsov.mon->wlr_output);
 }
 
 bool workspace_overview_handle_button(

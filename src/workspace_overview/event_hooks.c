@@ -57,8 +57,14 @@ void wsov_process_frame(void) {
 
 	bool drag_scrolling = wsov.pressed && wsov.moved && wsov.has_drag_client &&
 						  wsov.drag_scroll_direction != 0;
+	bool drag_scaling = wsov.pressed && wsov.moved && wsov_drag_scale_animating();
+	if (drag_scaling) {
+		wsov_drag_follow(server.cursor->x, server.cursor->y);
+		wsov_update_drop_indicator(server.cursor->x, server.cursor->y);
+	}
 	if (!wsov.layout_animating && !wsov.scroll_animating && !wsov.animating &&
-		!drag_scrolling && !client_animating && !client_animation_finished) {
+		!drag_scrolling && !drag_scaling && !client_animating &&
+		!client_animation_finished) {
 		wsov_schedule_dirty_render();
 		wsov_detach_frame_listener();
 		return;
@@ -95,7 +101,8 @@ void wsov_process_frame(void) {
 	if (!wsov.animating && wsov.closing) {
 		wsov_finalize_close(wsov.close_tag);
 	} else if (!wsov.layout_animating && !wsov.scroll_animating &&
-			   !wsov.animating && !drag_scrolling && !client_animating) {
+			   !wsov.animating && !drag_scrolling && !drag_scaling &&
+			   !client_animating) {
 		wsov_schedule_dirty_render();
 		wsov_detach_frame_listener();
 	}

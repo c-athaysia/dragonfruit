@@ -108,6 +108,10 @@ struct Monitor {
 	double bg_cam_x, bg_cam_y;
 	double bg_zoom;
 	bool bg_dirty;
+	// background glide after a tag switch, from the last drawn view centre
+	bool bg_glide;
+	double bg_glide_cx, bg_glide_cy, bg_glide_zoom;
+	uint32_t bg_glide_start;
 	bool is_ws_overview;
 	WorkspaceOverviewScope workspace_overview_scope;
 	int32_t is_jump_mode;

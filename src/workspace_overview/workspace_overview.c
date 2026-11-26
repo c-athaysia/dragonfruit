@@ -170,6 +170,16 @@ void wsov_close(uint32_t focus_tag, Client *focus_client) {
 	if (!camera_tag || !wsov_cell_for_tag(camera_tag))
 		camera_tag = previous_target;
 	wsov.camera_tag = camera_tag;
+	// a clicked canvas window is where the camera lands, the close animation
+	// then zooms into it like the canvas overview
+	struct wsov_cell *cell = wsov_cell_for_tag(camera_tag);
+	if (cell && cell->log_zoom > 0.0 && canvas_active(wsov.mon)) {
+		if (focus_client && ISFAKETILED(focus_client))
+			canvas_tag_camera_focus(wsov.mon, camera_tag, focus_client);
+		canvas_tag_camera(wsov.mon, camera_tag, &cell->real_cx,
+						  &cell->real_cy, &cell->real_zoom);
+		cell->canvas_blend = -1.0; // recompute at the new camera
+	}
 	wsov_apply_camera(wsov.progress);
 	wsov_start_animation(true, 0.0);
 }

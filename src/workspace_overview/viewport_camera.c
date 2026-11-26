@@ -422,6 +422,7 @@ void wsov_apply_camera(double progress) {
 	struct wsov_camera_view view;
 	if (!wsov_get_camera_view(progress, &view))
 		return;
+	wsov_canvas_blend_cells(progress);
 
 	for (int i = 0; i < wsov.cell_count; i++) {
 		struct wsov_cell *cell = &wsov.cells[i];

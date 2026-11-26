@@ -134,6 +134,17 @@ int wsov_item_stack_compare(const void *left, const void *right) {
 	return a_index < b_index ? -1 : 1;
 }
 
+// box of a canvas window in its preview, false for anything not on the canvas
+static bool wsov_canvas_item_geom(const struct wsov_cell *cell, Client *c,
+								  struct wlr_box *geo) {
+	if (cell->log_zoom <= 0.0 || !canvas_active(wsov.mon) || !ISFAKETILED(c) ||
+		!c->canvas_placed || c->isfullscreen || c->ismaximizescreen)
+		return false;
+	*geo = canvas_preview_box(c, cell->canvas_cam_x, cell->canvas_cam_y,
+							  cell->canvas_zoom, cell->canvas_blend);
+	return true;
+}
+
 void wsov_capture_cell_items(struct wsov_cell *cell) {
 	cell->item_count = 0;
 	Client *c;
@@ -142,11 +153,7 @@ void wsov_capture_cell_items(struct wsov_cell *cell) {
 			continue;
 		wsov_item_add(cell, c);
 		struct wlr_box geo = c->animation.current;
-		if (cell->canvas_zoom > 0.0 && canvas_active(wsov.mon) &&
-			ISFAKETILED(c) && c->canvas_placed && !c->isfullscreen &&
-			!c->ismaximizescreen)
-			geo = canvas_preview_box(c, cell->canvas_cam_x, cell->canvas_cam_y,
-									 cell->canvas_zoom);
+		wsov_canvas_item_geom(cell, c, &geo);
 		cell->items[cell->item_count - 1].workspace_geom = geo;
 	}
 	wl_list_for_each(c, &server.fadeout_clients, fadeout_link) {
@@ -396,13 +403,22 @@ void wsov_capture_workspace_tags(uint32_t tags) {
 			continue;
 		m->tagset[saved_seltags] = wsov_tag_bit(tag);
 		m->pertag->curtag = tag;
-		if (on_canvas)
+		cell->log_zoom = 0.0;
+		if (on_canvas) {
+			canvas_tag_camera(m, tag, &cell->real_cx, &cell->real_cy,
+							  &cell->real_zoom);
 			canvas_wsov_frame(m);
+		}
 		arrange(m, false, true);
 		wsov_settle_tag_animations(m, selected);
 		cell->canvas_cam_x = m->cam_x;
 		cell->canvas_cam_y = m->cam_y;
 		cell->canvas_zoom = m->zoom;
+		if (on_canvas) {
+			canvas_view_centre(m, &cell->log_cx, &cell->log_cy);
+			cell->log_zoom = m->zoom;
+			cell->canvas_blend = 1.0;
+		}
 		wsov_capture_cell_items(cell);
 		wsov_capture_cell_bars(cell);
 	}
@@ -962,6 +978,43 @@ void wsov_render_cell_part(struct wsov_cell *cell,
 	wlr_scene_buffer_set_buffer(target, buffer);
 	wlr_scene_buffer_set_source_box(target, NULL);
 	wlr_scene_buffer_set_filter_mode(target, WLR_SCALE_FILTER_BILINEAR);
+}
+
+// opening and closing slide every canvas preview between its tag's real camera
+// and layout (progress 0, where the cell fills the screen) and the overview
+// framing (progress 1) so neither the windows nor the shader jump at the ends
+void wsov_canvas_blend_cells(double e) {
+	if (!wsov.mon || !canvas_active(wsov.mon))
+		return;
+	for (int i = 0; i < wsov.cell_count; i++) {
+		struct wsov_cell *cell = &wsov.cells[i];
+		if (cell->log_zoom <= 0.0 || cell->real_zoom <= 0.0 ||
+			fabs(cell->canvas_blend - e) < 1e-4)
+			continue;
+		double z = cell->real_zoom * pow(cell->log_zoom / cell->real_zoom, e);
+		canvas_cam_at(wsov.mon, cell->real_cx + (cell->log_cx - cell->real_cx) * e,
+					  cell->real_cy + (cell->log_cy - cell->real_cy) * e, z,
+					  &cell->canvas_cam_x, &cell->canvas_cam_y);
+		cell->canvas_zoom = z;
+		cell->canvas_blend = e;
+		for (int j = 0; j < cell->item_count; j++) {
+			struct wsov_item *item = &cell->items[j];
+			if (!item->is_snapshot && item->client)
+				wsov_canvas_item_geom(cell, item->client, &item->workspace_geom);
+		}
+		wsov_position_cell_items(cell);
+		cell->contents_dirty = true;
+		cell->foreground_dirty = true;
+		// closing doesnt render dirty cells, these still have to follow
+		if (wsov.closing && wsov_cell_preview_visible(cell, wsov.progress)) {
+			wsov_render_cell_part(cell, cell->contents, 0, LyrTop,
+								  wsov_output_scale());
+			wsov_render_cell_part(cell, cell->foreground, LyrTop, NUM_LAYERS,
+								  wsov_output_scale());
+			cell->contents_dirty = false;
+			cell->foreground_dirty = false;
+		}
+	}
 }
 
 void wsov_prepare_cell_for_render(struct wsov_cell *cell) {

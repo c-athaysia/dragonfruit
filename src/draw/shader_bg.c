@@ -2,6 +2,7 @@
 #include "mango/common/log.h"
 #include "mango/common/server.h"
 #include "mango/manage/monitor.h"
+#include "mango/layout/canvas.h"
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -530,9 +531,24 @@ struct wlr_buffer *shader_bg_render_view(Monitor *m, int32_t w, int32_t h,
 	return out;
 }
 
+static bool shader_bg_update_at(Monitor *m);
+
+// draws at the camera canvas_bg_camera gives, the live one unless the
+// background is still gliding after a tag switch
 bool shader_bg_update(Monitor *m) {
 	if (!m || !m->wlr_output || !server.renderer)
 		return false;
+	double x, y, z, sx = m->cam_x, sy = m->cam_y, sz = m->zoom;
+	bool glide = canvas_bg_camera(m, &x, &y, &z);
+	m->cam_x = x, m->cam_y = y, m->zoom = z;
+	bool drew = shader_bg_update_at(m);
+	m->cam_x = sx, m->cam_y = sy, m->zoom = sz;
+	if (glide)
+		wlr_output_schedule_frame(m->wlr_output);
+	return drew;
+}
+
+static bool shader_bg_update_at(Monitor *m) {
 
 	// no shader and none pending means nothing to draw so no buffer and no pass
 	// it used to allocate a full buffer anyway and run an empty pass every
