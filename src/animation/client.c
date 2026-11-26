@@ -1282,6 +1282,8 @@ static void fadeout_draw_border(Client *c, int32_t width, int32_t height,
 	for (int i = 0; i < 4; i++)
 		col[i] *= opacity;
 	wlr_scene_rect_set_color(c->border, col);
+	// snapshot children keep the window's screen position, so do the rects
+	wlr_scene_node_set_position(&c->border->node, c->geom.x, c->geom.y);
 	wlr_scene_rect_set_size(c->border, width, height);
 	wlr_scene_rect_set_corner_radii(c->border, r);
 	wlr_scene_rect_set_clipped_region(c->border, hole);
@@ -1304,7 +1306,8 @@ static void fadeout_draw_border(Client *c, int32_t width, int32_t height,
 	wlr_scene_node_set_enabled(&c->border_inner->node, true);
 	wlr_scene_rect_set_color(c->border_inner, col);
 	wlr_scene_rect_set_size(c->border_inner, width - 2 * in, height - 2 * in);
-	wlr_scene_node_set_position(&c->border_inner->node, in, in);
+	wlr_scene_node_set_position(&c->border_inner->node, c->geom.x + in,
+								c->geom.y + in);
 	wlr_scene_rect_set_corner_radii(c->border_inner, r);
 	wlr_scene_rect_set_clipped_region(c->border_inner, ihole);
 }
