@@ -134,28 +134,77 @@ int wsov_item_stack_compare(const void *left, const void *right) {
 	return a_index < b_index ? -1 : 1;
 }
 
+static bool wsov_canvas_client(const struct wsov_cell *cell, Client *c) {
+	return cell->log_zoom > 0.0 && canvas_active(wsov.mon) && ISFAKETILED(c) &&
+		   c->canvas_placed && !c->isfullscreen && !c->ismaximizescreen;
+}
+
 // box of a canvas window in its preview, false for anything not on the canvas
-static bool wsov_canvas_item_geom(const struct wsov_cell *cell, Client *c,
+static bool wsov_canvas_item_geom(const struct wsov_cell *cell,
+								  const struct wsov_item *item,
 								  struct wlr_box *geo) {
-	if (cell->log_zoom <= 0.0 || !canvas_active(wsov.mon) || !ISFAKETILED(c) ||
-		!c->canvas_placed || c->isfullscreen || c->ismaximizescreen)
+	if (item->is_snapshot || !item->client ||
+		!wsov_canvas_client(cell, item->client))
 		return false;
-	*geo = canvas_preview_box(c, cell->canvas_cam_x, cell->canvas_cam_y,
+	*geo = canvas_preview_box(item->client, item->ov_x, item->ov_y,
+							  cell->canvas_cam_x, cell->canvas_cam_y,
 							  cell->canvas_zoom, cell->canvas_blend);
 	return true;
 }
 
+// a full capture lays every preview out again and the windows glide from where
+// they were shown, a recapture between keeps the spots each window had
+static bool wsov_fresh_framing;
+static void wsov_framing_start(struct wsov_cell *cell);
+static void wsov_canvas_cell_apply(struct wsov_cell *cell, double e);
+
+// framing each tag's preview last showed, survives the cells being rebuilt
+static struct {
+	double cx, cy, zoom;
+} wsov_shown[PERTAG_SLOTS];
+
+void wsov_framing_reset(void) {
+	memset(wsov_shown, 0, sizeof(wsov_shown));
+	Client *c;
+	wl_list_for_each(c, &server.clients, link) c->wsov_ov_shown = false;
+}
+
 void wsov_capture_cell_items(struct wsov_cell *cell) {
+	int old_count = cell->item_count;
+	struct wsov_item *old = NULL;
+	if (old_count > 0 && (old = malloc(old_count * sizeof(*old))))
+		memcpy(old, cell->items, old_count * sizeof(*old));
 	cell->item_count = 0;
 	Client *c;
 	wl_list_for_each_reverse(c, &server.focus_stack, flink) {
 		if (!wsov_client_on_tag(c, cell->tag))
 			continue;
 		wsov_item_add(cell, c);
+		struct wsov_item *item = &cell->items[cell->item_count - 1];
+		if (item->client != c)
+			continue; // add failed
+		item->ov_x = item->ov_from_x = item->ov_to_x = item->ov_base_x =
+			c->ov_x;
+		item->ov_y = item->ov_from_y = item->ov_to_y = item->ov_base_y =
+			c->ov_y;
+		struct wsov_item *prev = NULL;
+		for (int i = 0; old && i < old_count && !prev; i++)
+			if (old[i].client == c && !old[i].is_snapshot)
+				prev = &old[i];
+		if (wsov_fresh_framing) {
+			if (c->wsov_ov_shown) {
+				item->ov_x = item->ov_from_x = c->wsov_ov_x;
+				item->ov_y = item->ov_from_y = c->wsov_ov_y;
+			}
+		} else if (prev) {
+			memcpy(&item->ov_x, &prev->ov_x,
+				   8 * sizeof(double)); // ov_x .. ov_base_y
+		}
 		struct wlr_box geo = c->animation.current;
-		wsov_canvas_item_geom(cell, c, &geo);
-		cell->items[cell->item_count - 1].workspace_geom = geo;
+		wsov_canvas_item_geom(cell, item, &geo);
+		item->workspace_geom = geo;
 	}
+	free(old);
 	wl_list_for_each(c, &server.fadeout_clients, fadeout_link) {
 		if (c->mon != wsov.mon)
 			continue;
@@ -415,11 +464,25 @@ void wsov_capture_workspace_tags(uint32_t tags) {
 		cell->canvas_cam_y = m->cam_y;
 		cell->canvas_zoom = m->zoom;
 		if (on_canvas) {
-			canvas_view_centre(m, &cell->log_cx, &cell->log_cy);
-			cell->log_zoom = m->zoom;
+			canvas_view_centre(m, &cell->log_to_cx, &cell->log_to_cy);
+			cell->log_to_zoom = m->zoom;
+			cell->log_base_cx = cell->log_to_cx;
+			cell->log_base_cy = cell->log_to_cy;
+			cell->log_base_zoom = cell->log_to_zoom;
+			bool shown = tag < PERTAG_SLOTS && wsov_shown[tag].zoom > 0.0;
+			cell->log_cx = cell->log_from_cx =
+				shown ? wsov_shown[tag].cx : cell->log_to_cx;
+			cell->log_cy = cell->log_from_cy =
+				shown ? wsov_shown[tag].cy : cell->log_to_cy;
+			cell->log_zoom = cell->log_from_zoom =
+				shown ? wsov_shown[tag].zoom : cell->log_to_zoom;
 			cell->canvas_blend = 1.0;
 		}
+		wsov_fresh_framing = on_canvas;
 		wsov_capture_cell_items(cell);
+		wsov_fresh_framing = false;
+		if (on_canvas)
+			wsov_framing_start(cell);
 		wsov_capture_cell_bars(cell);
 	}
 
@@ -983,14 +1046,8 @@ void wsov_render_cell_part(struct wsov_cell *cell,
 // opening and closing slide every canvas preview between its tag's real camera
 // and layout (progress 0, where the cell fills the screen) and the overview
 // framing (progress 1) so neither the windows nor the shader jump at the ends
-void wsov_canvas_blend_cells(double e) {
-	if (!wsov.mon || !canvas_active(wsov.mon))
-		return;
-	for (int i = 0; i < wsov.cell_count; i++) {
-		struct wsov_cell *cell = &wsov.cells[i];
-		if (cell->log_zoom <= 0.0 || cell->real_zoom <= 0.0 ||
-			fabs(cell->canvas_blend - e) < 1e-4)
-			continue;
+static void wsov_canvas_cell_apply(struct wsov_cell *cell, double e) {
+	{
 		double z = cell->real_zoom * pow(cell->log_zoom / cell->real_zoom, e);
 		canvas_cam_at(wsov.mon, cell->real_cx + (cell->log_cx - cell->real_cx) * e,
 					  cell->real_cy + (cell->log_cy - cell->real_cy) * e, z,
@@ -999,8 +1056,7 @@ void wsov_canvas_blend_cells(double e) {
 		cell->canvas_blend = e;
 		for (int j = 0; j < cell->item_count; j++) {
 			struct wsov_item *item = &cell->items[j];
-			if (!item->is_snapshot && item->client)
-				wsov_canvas_item_geom(cell, item->client, &item->workspace_geom);
+			wsov_canvas_item_geom(cell, item, &item->workspace_geom);
 		}
 		wsov_position_cell_items(cell);
 		cell->contents_dirty = true;
@@ -1015,6 +1071,114 @@ void wsov_canvas_blend_cells(double e) {
 			cell->foreground_dirty = false;
 		}
 	}
+}
+
+void wsov_canvas_blend_cells(double e) {
+	if (!wsov.mon || !canvas_active(wsov.mon))
+		return;
+	for (int i = 0; i < wsov.cell_count; i++) {
+		struct wsov_cell *cell = &wsov.cells[i];
+		if (cell->log_zoom <= 0.0 || cell->real_zoom <= 0.0 ||
+			fabs(cell->canvas_blend - e) < 1e-4)
+			continue;
+		wsov_canvas_cell_apply(cell, e);
+	}
+}
+
+// shows the framing k of the way from log_from to log_to, zoom geometric
+static void wsov_framing_set(struct wsov_cell *cell, double k) {
+	cell->log_cx = cell->log_from_cx + (cell->log_to_cx - cell->log_from_cx) * k;
+	cell->log_cy = cell->log_from_cy + (cell->log_to_cy - cell->log_from_cy) * k;
+	cell->log_zoom =
+		cell->log_from_zoom * pow(cell->log_to_zoom / cell->log_from_zoom, k);
+	if (cell->tag < PERTAG_SLOTS) {
+		wsov_shown[cell->tag].cx = cell->log_cx;
+		wsov_shown[cell->tag].cy = cell->log_cy;
+		wsov_shown[cell->tag].zoom = cell->log_zoom;
+	}
+	for (int i = 0; i < cell->item_count; i++) {
+		struct wsov_item *item = &cell->items[i];
+		if (item->is_snapshot || !item->client)
+			continue;
+		item->ov_x = item->ov_from_x + (item->ov_to_x - item->ov_from_x) * k;
+		item->ov_y = item->ov_from_y + (item->ov_to_y - item->ov_from_y) * k;
+		if (item->client != wsov.drag_client) {
+			item->client->wsov_ov_x = item->ov_x;
+			item->client->wsov_ov_y = item->ov_y;
+			item->client->wsov_ov_shown = true;
+		}
+	}
+	cell->canvas_blend = -1.0; // recompute at the next blend
+}
+
+// glides from the from values to the to values, or lands at once when they
+// match or animations are off
+static void wsov_framing_start(struct wsov_cell *cell) {
+	double z = cell->log_to_zoom;
+	bool moves = fabs(cell->log_from_zoom - z) > 1e-4 * z ||
+				 hypot(cell->log_from_cx - cell->log_to_cx,
+					   cell->log_from_cy - cell->log_to_cy) * z > 0.5;
+	for (int i = 0; i < cell->item_count && !moves; i++) {
+		struct wsov_item *it = &cell->items[i];
+		moves = hypot(it->ov_from_x - it->ov_to_x, it->ov_from_y - it->ov_to_y) *
+					z > 0.5;
+	}
+	cell->log_anim = moves && config.animations;
+	clock_gettime(CLOCK_MONOTONIC, &cell->log_anim_start);
+	wsov_framing_set(cell, cell->log_anim ? 0.0 : 1.0);
+	wsov_canvas_cell_apply(cell, wsov.progress);
+	if (cell->log_anim)
+		wsov_attach_frame_listener();
+}
+
+// steps every framing glide, true while one is still going
+bool wsov_canvas_framing_tick(void) {
+	bool any = false;
+	const AnimationCurve *curve = &config.animation_curve_wsov_move;
+	double dur = MANGO_MAX(1.0, (double)animation_curve_duration_ms(
+									curve, config.animation_duration_wsov_move));
+	for (int i = 0; i < wsov.cell_count; i++) {
+		struct wsov_cell *cell = &wsov.cells[i];
+		if (!cell->log_anim)
+			continue;
+		double t = wsov_elapsed_ms(&cell->log_anim_start) / dur;
+		if (t >= 1.0)
+			cell->log_anim = false;
+		else
+			any = true;
+		wsov_framing_set(cell, t >= 1.0 ? 1.0 : animation_curve_ease(curve, fmax(0.0, t)));
+	}
+	return any;
+}
+
+// with: glide tag cell's camera to view centre cx cy at zoom, else back to
+// the captured framing; windows stay on their captured spots either way
+void wsov_canvas_reframe_cell(struct wsov_cell *cell, bool with, double cx,
+							  double cy, double zoom) {
+	if (!cell || cell->log_zoom <= 0.0 || !wsov.mon)
+		return;
+	cell->log_from_cx = cell->log_cx;
+	cell->log_from_cy = cell->log_cy;
+	cell->log_from_zoom = cell->log_zoom;
+	if (with) {
+		cell->log_to_cx = cx;
+		cell->log_to_cy = cy;
+		cell->log_to_zoom = zoom;
+	} else {
+		cell->log_to_cx = cell->log_base_cx;
+		cell->log_to_cy = cell->log_base_cy;
+		cell->log_to_zoom = cell->log_base_zoom;
+	}
+	for (int i = 0; i < cell->item_count; i++) {
+		struct wsov_item *item = &cell->items[i];
+		if (item->is_snapshot || !item->client)
+			continue;
+		item->ov_from_x = item->ov_x;
+		item->ov_from_y = item->ov_y;
+		item->ov_to_x = item->ov_base_x;
+		item->ov_to_y = item->ov_base_y;
+	}
+	wsov_framing_start(cell);
 }
 
 void wsov_prepare_cell_for_render(struct wsov_cell *cell) {

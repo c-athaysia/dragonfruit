@@ -100,12 +100,12 @@ You can visualize and generate curve values using online tools like [cssportal.c
 | `animation_curve_focus` | string | `0.46,1.0,0.29,0.99` | Focus animation curve |
 | `animation_curve_opacity_fade_in` | string | `0.46,1.0,0.29,0.99` | Open opacity curve |
 | `animation_curve_opacity_fade_out` | string | `0.5,0.5,0.5,0.5` | Close opacity curve |
-| `animation_duration_workspace_overview_open` | integer | `260` | Workspace overview enter duration in milliseconds |
-| `animation_duration_workspace_overview_close` | integer | `260` | Workspace overview exit duration in milliseconds |
-| `animation_duration_workspace_overview_move` | integer | `382` | Workspace overview move animation duration in milliseconds |
-| `animation_curve_workspace_overview_open` | string | `0.333333,1.0,0.666667,1.0` | Workspace overview enter named easing or cubic-bezier value |
-| `animation_curve_workspace_overview_close` | string | `0.333333,1.0,0.666667,1.0` | Workspace overview exit named easing or cubic-bezier value |
-| `animation_curve_workspace_overview_move` | string | `0.26,0.99,0.26,1.0` | Workspace overview scrolling and layout-change named easing or cubic-bezier value |
+| `animation_duration_workspace_overview_open` | integer | `animation_duration_move` | Workspace overview enter duration in milliseconds |
+| `animation_duration_workspace_overview_close` | integer | `animation_duration_move` | Workspace overview exit duration in milliseconds |
+| `animation_duration_workspace_overview_move` | integer | `animation_duration_move` | Workspace overview move animation duration in milliseconds |
+| `animation_curve_workspace_overview_open` | string | `animation_curve_move` | Workspace overview enter named easing or cubic-bezier value |
+| `animation_curve_workspace_overview_close` | string | `animation_curve_move` | Workspace overview exit named easing or cubic-bezier value |
+| `animation_curve_workspace_overview_move` | string | `animation_curve_move` | Workspace overview scrolling and layout-change named easing or cubic-bezier value |
 
 ```ini
 animation_curve_open=0.46,1.0,0.29,0.99
@@ -115,13 +115,13 @@ animation_curve_close=0.46,1.0,0.29,0.99
 animation_curve_focus=0.46,1.0,0.29,0.99
 animation_curve_opacity_fade_in=0.46,1.0,0.29,0.99
 animation_curve_opacity_fade_out=0.5,0.5,0.5,0.5
-animation_duration_workspace_overview_open=260
-animation_duration_workspace_overview_close=260
-animation_duration_workspace_overview_move=382
-animation_curve_workspace_overview_open=0.333333,1.0,0.666667,1.0
-animation_curve_workspace_overview_close=0.333333,1.0,0.666667,1.0
-animation_curve_workspace_overview_move=0.26,0.99,0.26,1.0
 ```
+
+The workspace overview keys are optional. Left unset, the overview animates
+with `animation_duration_move` and `animation_curve_move`, like the canvas
+overview, so it follows your own move animation. Stock Mango's defaults were
+260 ms open/close and 382 ms move on gentler curves; set the keys to get them
+back.
 
 ## Tag Animation Direction
 

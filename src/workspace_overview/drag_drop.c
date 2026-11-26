@@ -168,6 +168,7 @@ static void wsov_drag_render_canvas_content(struct wlr_render_pass *pass,
 /* Zoom of the drag buffer relative to the source preview; canvas drags
  * rebuild it at the zoom of the preview under the pointer. */
 static double wsov_drag_k = 1.0;
+static void wsov_drag_reframe(uint32_t tag);
 /* Shown zoom eases from drag_k_from to drag_k_to; the buffer built at
  * wsov_drag_k is scaled by its dest size meanwhile. */
 static double drag_k_from = 1.0, drag_k_to = 1.0, drag_k_shown = 1.0;
@@ -317,6 +318,8 @@ void wsov_cancel_drag(void) {
 	bool had_drag =
 		wsov.pressed || wsov.moved || wsov.has_drag_client || wsov.drag_buffer;
 	uint32_t return_tag = wsov.drag_return_tag;
+	if (wsov.mon)
+		wsov_drag_reframe(0);
 	wsov_hide_drop_indicator();
 	wsov_restore_drag_floating();
 	wsov_destroy_drag_buffer();
@@ -440,6 +443,7 @@ void wsov_update_drop_indicator(double x, double y) {
 	if (wsov_canvas_drag()) {
 		cell = wsov_drop_cell_at(x, y);
 		if (!cell) {
+			wsov_drag_reframe(0);
 			wsov_hide_drop_indicator();
 			return;
 		}
@@ -542,7 +546,10 @@ void wsov_drag_rescale(double x, double y) {
 			item = &src->items[i];
 	if (!item)
 		return;
-	double k = dst->canvas_zoom / src->canvas_zoom;
+	// aim for where a reframe glide ends so it doesnt restart every frame
+	double dz = dst->log_anim ? dst->log_to_zoom : dst->canvas_zoom;
+	double sz = src->log_anim ? src->log_to_zoom : src->canvas_zoom;
+	double k = dz / sz;
 	if (fabs(k - drag_k_to) >= 0.01) {
 		drag_k_from = drag_k_shown;
 		drag_k_to = k;
@@ -625,6 +632,100 @@ static bool wsov_canvas_drop_pos(struct wsov_cell *cell, double *cx,
 	return true;
 }
 
+/* Tag whose preview is zoomed out for the dragged window, and the edge it
+ * made room at (0 none, 1 left, 2 right, 3 top, 4 bottom). */
+static uint32_t reframed_tag;
+static int reframed_edge;
+
+/* Edge of the hovered preview the dragged window's centre is closest to.
+ * Snapped onto the window furthest out that way, would the dragged window
+ * leave the captured framing? Then zoom out with the opposite edge pinned
+ * until it fits with canvas_overview_margin around it, else stay on the captured framing. Windows keep their spots,
+ * only the camera moves, and only when the closest edge changes. tag 0 puts
+ * the zoomed preview back. */
+static void wsov_drag_reframe(uint32_t tag) {
+	if (reframed_tag && reframed_tag != tag) {
+		wsov_canvas_reframe_cell(wsov_cell_for_tag(reframed_tag), false, 0.0,
+								 0.0, 0.0);
+		reframed_tag = 0;
+	}
+	struct wsov_cell *cell = tag ? wsov_cell_for_tag(tag) : NULL;
+	Client *c = wsov.drag_client;
+	if (!cell || cell->canvas_zoom <= 0.0 || cell->log_base_zoom <= 0.0 || !c)
+		return;
+	Monitor *m = wsov.mon;
+	double W = m->m.width, H = m->m.height;
+	double cw = c->canvas_geom.width, ch = c->canvas_geom.height;
+	// window centre's distance to each edge, in preview px as shown
+	double lx, ly, zs = cell->canvas_zoom;
+	wsov_drag_local_origin(cell, &lx, &ly);
+	double px = lx + cw * zs / 2.0, py = ly + ch * zs / 2.0;
+	double dist[5] = {1e18, px, W - px, py, H - py};
+	int edge = 1;
+	for (int e = 2; e <= 4; e++)
+		if (dist[e] < dist[edge])
+			edge = e;
+	if (reframed_tag == tag && reframed_edge == edge)
+		return;
+
+	// captured framing as camera top left, and the view centre offset
+	double bz = cell->log_base_zoom, bx, by, ox, oy;
+	canvas_cam_at(m, cell->log_base_cx, cell->log_base_cy, bz, &bx, &by);
+	canvas_cam_at(m, 0.0, 0.0, 1.0, &ox, &oy); // -offset at zoom 1
+	double gx = server.enable_gaps ? m->gappih : 0.0;
+	double gy = server.enable_gaps ? m->gappiv : 0.0;
+	// windows' extent on the axis of edge, lo..hi
+	bool horiz = edge == 1 || edge == 2;
+	double lo = 1e18, hi = -1e18;
+	bool any = false;
+	for (int i = 0; i < cell->item_count; i++) {
+		struct wsov_item *it = &cell->items[i];
+		Client *o = it->client;
+		if (it->is_snapshot || !o || o == c || !ISFAKETILED(o))
+			continue;
+		any = true;
+		double a = horiz ? it->ov_base_x : it->ov_base_y;
+		lo = fmin(lo, a);
+		hi = fmax(hi, a + (horiz ? o->canvas_geom.width
+								 : o->canvas_geom.height));
+	}
+	// zoom that fits the window snapped past the outermost one with the far
+	// edge pinned, plus half canvas_overview_margin of the windows' span like
+	// the overview fit leaves on each side
+	double z = bz, x0 = bx, y0 = by;
+	if (any) {
+		double pad = config.canvas_overview_margin / 200.0;
+		if (edge == 1) {
+			double need = lo - 2 * gx - cw;
+			z = W / (bx + W / bz - need + (hi - need) * pad);
+		} else if (edge == 2) {
+			double need = hi + 2 * gx + cw;
+			z = W / (need + (need - lo) * pad - bx);
+		} else if (edge == 3) {
+			double need = lo - 2 * gy - ch;
+			z = H / (by + H / bz - need + (hi - need) * pad);
+		} else {
+			double need = hi + 2 * gy + ch;
+			z = H / (need + (need - lo) * pad - by);
+		}
+		z = fmax(fmin(z, bz), 0.02);
+	}
+	if (z < bz * 0.999) {
+		// pinned edge stays, the other axis zooms around the centre
+		if (edge == 1)
+			x0 = bx + W / bz - W / z;
+		if (edge == 1 || edge == 2)
+			y0 = by + H / (2 * bz) - H / (2 * z);
+		if (edge == 3)
+			y0 = by + H / bz - H / z;
+		if (edge == 3 || edge == 4)
+			x0 = bx + W / (2 * bz) - W / (2 * z);
+	}
+	reframed_tag = tag;
+	reframed_edge = edge;
+	wsov_canvas_reframe_cell(cell, true, x0 - ox / z, y0 - oy / z, z);
+}
+
 /* Canvas snap preview: shown only where the canvas snap would move it. */
 static void wsov_update_canvas_drop_indicator(struct wsov_cell *cell) {
 	Client *c = wsov.drag_client;
@@ -635,7 +736,9 @@ static void wsov_update_canvas_drop_indicator(struct wsov_cell *cell) {
 	}
 	double sx = cx, sy = cy;
 	double z = wsov_cell_canvas_scale(cell);
-	if (!canvas_snap_on_tags(c, wsov_tag_bit(cell->tag), z, &sx, &sy)) {
+	bool snapped = canvas_snap_on_tags(c, wsov_tag_bit(cell->tag), z, &sx, &sy);
+	wsov_drag_reframe(cell->tag);
+	if (!snapped) {
 		wsov_hide_drop_indicator();
 		return;
 	}
@@ -719,6 +822,19 @@ void wsov_finish_drop(double x, double y) {
 
 	client_view_on_monitor(&(Arg){.ui = target_bit}, false, wsov.mon, false);
 	if (canvas_drop) {
+		// the recapture glides the window in from where it was let go, in
+		// overview space of the preview as shown now
+		double lx, ly, raw_x, raw_y;
+		wsov_drag_local_origin(target, &lx, &ly);
+		if (target->canvas_zoom > 0.0 &&
+			wsov_canvas_drop_pos(target, &raw_x, &raw_y)) {
+			c->wsov_ov_x = target->canvas_cam_x + lx / target->canvas_zoom +
+						   (canvas_x - raw_x);
+			c->wsov_ov_y = target->canvas_cam_y + ly / target->canvas_zoom +
+						   (canvas_y - raw_y);
+			c->wsov_ov_shown = true;
+		}
+		reframed_tag = 0; // the recapture frames it for real
 		c->canvas_geom.x = canvas_x;
 		c->canvas_geom.y = canvas_y;
 		c->canvas_placed = true;

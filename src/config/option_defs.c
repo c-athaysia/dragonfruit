@@ -2744,9 +2744,11 @@ void set_value_default() {
 	config.animation_duration_tag = 300;
 	config.animation_duration_close = 300;
 	config.animation_duration_focus = 0;
-	config.animation_duration_wsov_open = 260;
-	config.animation_duration_wsov_close = 260;
-	config.animation_duration_wsov_move = 382;
+	// 0 and a NAN curve mean unset, override_config falls back to the move
+	// animation so the overview moves like the canvas overview does
+	config.animation_duration_wsov_open = 0;
+	config.animation_duration_wsov_close = 0;
+	config.animation_duration_wsov_move = 0;
 
 	config.focus_on_activate = 1;
 	config.new_is_master = 1;
@@ -2954,11 +2956,9 @@ void set_value_default() {
 	set_bezier_curve(&config.animation_curve_focus, 0.46, 1.0, 0.29, 0.99);
 	set_bezier_curve(&config.animation_curve_opafadein, 0.46, 1.0, 0.29, 0.99);
 	set_bezier_curve(&config.animation_curve_opafadeout, 0.5, 0.5, 0.5, 0.5);
-	set_bezier_curve(&config.animation_curve_wsov_open, 1.0 / 3.0, 1.0,
-					 2.0 / 3.0, 1.0);
-	set_bezier_curve(&config.animation_curve_wsov_close, 1.0 / 3.0, 1.0,
-					 2.0 / 3.0, 1.0);
-	set_bezier_curve(&config.animation_curve_wsov_move, 0.26, 0.99, 0.26, 1.0);
+	set_bezier_curve(&config.animation_curve_wsov_open, NAN, 0, 0, 0);
+	set_bezier_curve(&config.animation_curve_wsov_close, NAN, 0, 0, 0);
+	set_bezier_curve(&config.animation_curve_wsov_move, NAN, 0, 0, 0);
 
 	config.groupbardata.fg_color[0] = 0xc0 / 255.0f;
 	config.groupbardata.fg_color[1] = 0xca / 255.0f;
@@ -3104,6 +3104,19 @@ void override_config(void) {
 		CLAMP_INT(config.animation_duration_close, 0, 50000);
 	config.animation_duration_focus =
 		CLAMP_INT(config.animation_duration_focus, 0, 50000);
+	AnimationCurve *wsov_curves[] = {&config.animation_curve_wsov_open,
+									 &config.animation_curve_wsov_close,
+									 &config.animation_curve_wsov_move};
+	uint32_t *wsov_durations[] = {&config.animation_duration_wsov_open,
+								  &config.animation_duration_wsov_close,
+								  &config.animation_duration_wsov_move};
+	for (int i = 0; i < 3; i++) {
+		if (wsov_curves[i]->type == ANIMATION_CURVE_BEZIER &&
+			isnan(wsov_curves[i]->bezier[0]))
+			*wsov_curves[i] = config.animation_curve_move;
+		if (!*wsov_durations[i])
+			*wsov_durations[i] = config.animation_duration_move;
+	}
 	config.animation_duration_wsov_open =
 		CLAMP_INT(config.animation_duration_wsov_open, 1, 50000);
 	config.animation_duration_wsov_close =

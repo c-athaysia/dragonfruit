@@ -316,6 +316,7 @@ bool wsov_open(Monitor *m, WorkspaceOverviewLayout layout) {
 	memset(&wsov, 0, sizeof(wsov));
 	wsov.mon = m;
 	wsov.layout = layout;
+	wsov_framing_reset();
 	if (m->workspace_overview_scope == OCCUPIED_WORKSPACE &&
 		config.workspace_overview_occupied_keep_seen_tags) {
 		for (int tag = 1; tag <= config.tag_num; tag++) {

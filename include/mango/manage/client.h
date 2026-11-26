@@ -83,6 +83,9 @@ struct Client {
 	// matches again
 	bool canvas_resize_pending;
 	struct wlr_box canvas_wsov_geom; // real geom while wsov previews zoom it
+	// overview-space spot a wsov preview last drew it at, reframes glide from it
+	double wsov_ov_x, wsov_ov_y;
+	bool wsov_ov_shown;
 	// when canvas_seed_client placed it
 	// a focus right after that is the auto focus not the user
 	int64_t canvas_seeded_ms;

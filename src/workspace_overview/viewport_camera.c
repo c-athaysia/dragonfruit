@@ -133,7 +133,6 @@ bool wsov_get_camera_view(double progress, struct wsov_camera_view *view) {
 		wsov_scrolls_horizontally() ? wsov.scroll_offset : 0.0;
 	double final_viewport_y =
 		wsov_scrolls_vertically() ? wsov.scroll_offset : 0.0;
-	progress = fmax(0.0, fmin(1.0, progress));
 	double viewport_w = target_w + (wsov.mon->m.width - target_w) * progress;
 	double viewport_h = target_h + (wsov.mon->m.height - target_h) * progress;
 	view->x = target_x + (final_viewport_x - target_x) * progress;

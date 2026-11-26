@@ -2678,16 +2678,17 @@ void canvas_wsov_frame(Monitor *m) {
 // same math as canvas() so recaptures between full captures agree with them,
 // animation.current only knows the real camera
 // e 0 is the real layout and 1 the overview one, opening the overview blends it
-struct wlr_box canvas_preview_box(Client *c, double cam_x, double cam_y,
-								  double z, double e) {
+struct wlr_box canvas_preview_box(Client *c, double ov_x, double ov_y,
+								  double cam_x, double cam_y, double z,
+								  double e) {
 	Monitor *m = c->mon;
 	double saved = m->zoom;
 	m->zoom = z; // border width scales with the camera
 	int32_t cbw = (int32_t)canvas_frame_bw(c);
 	m->zoom = saved;
 	double inner = 2.0 * config.borderpx;
-	double px = c->canvas_geom.x + (c->ov_x - c->canvas_geom.x) * e;
-	double py = c->canvas_geom.y + (c->ov_y - c->canvas_geom.y) * e;
+	double px = c->canvas_geom.x + (ov_x - c->canvas_geom.x) * e;
+	double py = c->canvas_geom.y + (ov_y - c->canvas_geom.y) * e;
 	return (struct wlr_box){
 		.x = m->m.x + (int32_t)lround((px - cam_x) * z),
 		.y = m->m.y + (int32_t)lround((py - cam_y) * z),

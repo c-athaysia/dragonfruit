@@ -61,6 +61,9 @@ struct wsov_item {
 	bool frame_only; // draw the frame only; content is drawn by the caller
 	struct wlr_box box;
 	struct wlr_box workspace_geom;
+	// canvas overview-space spot shown, gliding from ov_from to ov_to
+	double ov_x, ov_y, ov_from_x, ov_from_y, ov_to_x, ov_to_y;
+	double ov_base_x, ov_base_y; // spot at the captured framing
 	double render_scale;
 	double render_scale_x;
 	double render_scale_y;
@@ -148,6 +151,13 @@ struct wsov_cell {
 	uint32_t tag;
 	// canvas camera the preview was framed with (workspace pixels)
 	double canvas_cam_x, canvas_cam_y, canvas_zoom;
+	// log framing shown (log_*) glides from log_from_* to log_to_*,
+	// log_base_* is the captured one a drag reframe returns to
+	double log_from_cx, log_from_cy, log_from_zoom;
+	double log_to_cx, log_to_cy, log_to_zoom;
+	double log_base_cx, log_base_cy, log_base_zoom;
+	struct timespec log_anim_start;
+	bool log_anim;
 	// the tag's real camera and the overview framing as view centre and zoom,
 	// canvas_blend says where between them the camera above is (0 real)
 	double real_cx, real_cy, real_zoom, log_cx, log_cy, log_zoom;
@@ -563,6 +573,10 @@ void wsov_update_drop_indicator(double x, double y);
 void wsov_place_floating(Client *c, struct wsov_cell *cell);
 void wsov_finish_drop(double x, double y);
 void wsov_drag_rescale(double x, double y);
+void wsov_framing_reset(void);
+bool wsov_canvas_framing_tick(void);
+void wsov_canvas_reframe_cell(struct wsov_cell *cell, bool with, double cx,
+							  double cy, double zoom);
 bool wsov_drag_scale_animating(void);
 void wsov_drag_follow(double x, double y);
 bool workspace_overview_handle_button(

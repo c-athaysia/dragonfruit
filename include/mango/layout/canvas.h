@@ -101,8 +101,8 @@ bool canvas_snap_on_tags(Client *c, uint32_t tags, double z, double *nx,
 						 double *ny);
 void canvas_wsov_drop_show(struct wlr_scene_tree *parent, struct wlr_box b,
 						   double z);
-struct wlr_box canvas_preview_box(Client *c, double cam_x, double cam_y,
-								  double z, double e);
+struct wlr_box canvas_preview_box(Client *c, double ov_x, double ov_y,
+								  double cam_x, double cam_y, double z, double e);
 void canvas_tag_camera(Monitor *m, uint32_t t, double *cx, double *cy,
 					   double *zoom);
 void canvas_cam_at(Monitor *m, double cx, double cy, double zoom,
