@@ -70,7 +70,10 @@ While one of these views is open, Mango tries the `bind`, `mousebind`, `axisbind
 
 | key_mode | Active while |
 | :--- | :--- |
+| `switcher` | The window switcher is open. |
 | `workspace_overview` | The workspace overview is open. |
+| `jump` | Canvas jump mode (`canvas_jump`) is on. |
+| `overview` | The canvas overview is open and jump mode is off. |
 
 If no bind of that key_mode matches, the binds of the current key_mode run as usual. You do not use `setkeymode` for these key modes.
 
@@ -140,6 +143,9 @@ bindr=Super,Super_L,spawn,rofi -show run
 | `overcircle` | `next/prev/current_next/current_prev` | Open the canvas overview when it is closed; while it is open, focus the next (`next`, `current_next`) or previous (`prev`, `current_prev`) window. |
 | `focuslast` | - | Focus the previously active window. |
 | `switcher` | `next/prev`, `all_tag_next/all_tag_prev`, `all_next/all_prev` | Open or cycle the thumbnail switcher. `next`/`prev` list the current tag's windows, `all_tag_next`/`all_tag_prev` list all tags on the current monitor, `all_next`/`all_prev` list all monitors and tags. Releasing any modifier key selects. |
+| `switcher_pick` | `[pointer]` | Focus the highlighted switcher window and close the switcher. `pointer` uses the thumbnail under the pointer. If no thumbnail is under the pointer, the switcher closes. |
+| `switcher_kill` | `[pointer]` | Close the highlighted switcher window. `pointer` uses the thumbnail under the pointer. If no thumbnail is under the pointer, the switcher closes. |
+| `switcher_close` | - | Close the switcher and keep the current focus. |
 | `exchange_client` | `left/right/up/down` | Swap the focused window with its neighbor in direction. Both windows change place, and with `exchange_cross_monitor` enabled they also swap monitors. |
 | `move_client` | `left/right/up/down` | Move the focused window one step in direction. When the neighbor lies on another monitor the window moves onto that monitor and is inserted in front of or behind the neighbor on the side it comes from; without a neighbor in that direction it moves onto the monitor lying there. Crossing monitors needs `exchange_cross_monitor`. |
 

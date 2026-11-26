@@ -1946,12 +1946,15 @@ bool pointer_process_button_press(struct wlr_pointer_button_event *event) {
 			(event->button == BTN_LEFT || event->button == BTN_RIGHT)) {
 			Client *switcher_c =
 				switcher_client_at(server.cursor->x, server.cursor->y);
-			if (!switcher_c)
-				switcher_close();
-			else if (event->button == BTN_LEFT)
-				switcher_commit_client(switcher_c);
-			else
-				pending_kill_client(switcher_c);
+			/* A mousebind in key_mode=switcher replaces these clicks. */
+			if (!input_modal_has_binds(MODAL_BIND_MOUSE)) {
+				if (!switcher_c)
+					switcher_close();
+				else if (event->button == BTN_LEFT)
+					switcher_commit_client(switcher_c);
+				else
+					pending_kill_client(switcher_c);
+			}
 			wlr_seat_pointer_notify_clear_focus(server.seat);
 			return true;
 		}
