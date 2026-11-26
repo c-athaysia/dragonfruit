@@ -1261,6 +1261,54 @@ void client_set_clip(Client *c, float factor) {
 	buffer_set_effect(c, buffer_data);
 }
 
+// the snapshot copies buffers only, so the ghost draws its own rings. outer
+// ring from the full box, inner ring (double border) inset by bw - iw, both
+// holes follow the ghost size so they shrink with the zoom
+static void fadeout_draw_border(Client *c, int32_t width, int32_t height,
+								double opacity) {
+	if (!c->border || width <= 0 || height <= 0)
+		return;
+	int32_t bw = c->bw, gap;
+	int32_t iw = inner_ring_width(bw, &gap);
+	struct fx_corner_radii r = corner_radii_all(config.border_radius);
+	int32_t d = iw ? gap + iw - (gap == 0 ? 1 : 0) : 0;
+	struct clipped_region hole = {
+		.area = {bw - d, bw - d, GEZERO(width - 2 * (bw - d)),
+				 GEZERO(height - 2 * (bw - d))},
+		.corners = r,
+	};
+	float col[4];
+	memcpy(col, config.bordercolor, sizeof(col));
+	for (int i = 0; i < 4; i++)
+		col[i] *= opacity;
+	wlr_scene_rect_set_color(c->border, col);
+	wlr_scene_rect_set_size(c->border, width, height);
+	wlr_scene_rect_set_corner_radii(c->border, r);
+	wlr_scene_rect_set_clipped_region(c->border, hole);
+	if (!c->border_inner)
+		return;
+	int32_t in = bw - iw;
+	if (!iw || width <= 2 * in || height <= 2 * in) {
+		wlr_scene_node_set_enabled(&c->border_inner->node, false);
+		return;
+	}
+	const float *ic = config.inner_bordercolor_set ? config.inner_bordercolor
+												   : config.bordercolor;
+	for (int i = 0; i < 4; i++)
+		col[i] = ic[i] * opacity;
+	struct clipped_region ihole = {
+		.area = {bw - in, bw - in, GEZERO(width - 2 * bw),
+				 GEZERO(height - 2 * bw)},
+		.corners = r,
+	};
+	wlr_scene_node_set_enabled(&c->border_inner->node, true);
+	wlr_scene_rect_set_color(c->border_inner, col);
+	wlr_scene_rect_set_size(c->border_inner, width - 2 * in, height - 2 * in);
+	wlr_scene_node_set_position(&c->border_inner->node, in, in);
+	wlr_scene_rect_set_corner_radii(c->border_inner, r);
+	wlr_scene_rect_set_clipped_region(c->border_inner, ihole);
+}
+
 void fadeout_client_animation_next_tick(Client *c) {
 	if (!c)
 		return;
@@ -1317,6 +1365,18 @@ void fadeout_client_animation_next_tick(Client *c) {
 	if (config.animation_fade_out && !c->no_fade_out)
 		wlr_scene_node_for_each_buffer(&c->scene->node,
 									   scene_buffer_apply_opacity, &opacity);
+
+	if (c->border && c->bw > 0)
+		fadeout_draw_border(c,
+							client_close_animation_type(c) == ANIM_TYPE_ZOOM
+								? width
+								: c->geom.width,
+							client_close_animation_type(c) == ANIM_TYPE_ZOOM
+								? height
+								: c->geom.height,
+							config.animation_fade_out && !c->no_fade_out
+								? opacity
+								: 1.0);
 
 	if (c->mon) {
 		bool scaling = client_close_animation_type(c) == ANIM_TYPE_ZOOM;
@@ -1448,6 +1508,18 @@ void init_fadeout_client(Client *c) {
 	fadeout_client->animation_type_close = c->animation_type_close;
 	fadeout_client->animation.action = CLOSE;
 	fadeout_client->bw = c->bw;
+	if (c->bw > 0 && !c->no_border) {
+		fadeout_client->border = wlr_scene_rect_create(
+			fadeout_client->scene, 0, 0, config.bordercolor);
+		wlr_scene_node_lower_to_bottom(&fadeout_client->border->node);
+		fadeout_client->border_inner = wlr_scene_rect_create(
+			fadeout_client->scene, 0, 0, config.bordercolor);
+		wlr_scene_node_place_above(&fadeout_client->border_inner->node,
+								   &fadeout_client->border->node);
+		wlr_scene_node_set_enabled(&fadeout_client->border_inner->node, false);
+		fadeout_draw_border(fadeout_client, c->animation.current.width,
+							c->animation.current.height, 1.0);
+	}
 	fadeout_client->no_fade_out = c->no_fade_out;
 
 	fadeout_client->animation.initial.x = 0;
