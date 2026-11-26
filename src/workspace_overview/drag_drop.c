@@ -172,6 +172,16 @@ static void wsov_drag_reframe(uint32_t tag);
 /* Shown zoom eases from drag_k_from to drag_k_to; the buffer built at
  * wsov_drag_k is scaled by its dest size meanwhile. */
 static double drag_k_from = 1.0, drag_k_to = 1.0, drag_k_shown = 1.0;
+/* Source preview zoom at drag start: k is relative to it, and the source
+ * item box is rescaled from whatever zoom its preview is at right now. */
+static double drag_ref_zoom;
+
+static double wsov_drag_box_fix(void) {
+	struct wsov_cell *src = wsov_cell_for_tag(wsov.source_tag);
+	return src && drag_ref_zoom > 0.0 && src->canvas_zoom > 0.0
+			   ? drag_ref_zoom / src->canvas_zoom
+			   : 1.0;
+}
 static bool drag_k_anim;
 static struct timespec drag_k_start;
 static int drag_built_w, drag_built_h, drag_built_bar;
@@ -185,7 +195,8 @@ static bool wsov_build_drag_buffer(struct wsov_item *item, double k) {
 	int width = item->client && item->client->isfloating
 					? MANGO_MAX(1, item->box.width)
 				: item->client && canvas_active(item->client->mon)
-					? MANGO_MAX(1, (int)lround(item->box.width * k))
+					? MANGO_MAX(1, (int)lround(item->box.width * k *
+											   wsov_drag_box_fix()))
 					: MANGO_MIN(item->box.width, 900);
 	int workspace_width =
 		MANGO_MAX(1, item->workspace_geom.width > 0 ? item->workspace_geom.width
@@ -311,6 +322,8 @@ static bool wsov_build_drag_buffer(struct wsov_item *item, double k) {
 bool wsov_create_drag_buffer(struct wsov_item *item) {
 	drag_k_from = drag_k_to = drag_k_shown = 1.0;
 	drag_k_anim = false;
+	struct wsov_cell *src = wsov_cell_for_tag(wsov.source_tag);
+	drag_ref_zoom = src ? src->canvas_zoom : 0.0;
 	return wsov_build_drag_buffer(item, 1.0);
 }
 
@@ -548,8 +561,7 @@ void wsov_drag_rescale(double x, double y) {
 		return;
 	// aim for where a reframe glide ends so it doesnt restart every frame
 	double dz = dst->log_anim ? dst->log_to_zoom : dst->canvas_zoom;
-	double sz = src->log_anim ? src->log_to_zoom : src->canvas_zoom;
-	double k = dz / sz;
+	double k = dz / (drag_ref_zoom > 0.0 ? drag_ref_zoom : src->canvas_zoom);
 	if (fabs(k - drag_k_to) >= 0.01) {
 		drag_k_from = drag_k_shown;
 		drag_k_to = k;
