@@ -188,6 +188,18 @@ void wsov_finish_client_geometry(Client *c) {
 	if (!c || !c->scene)
 		return;
 
+	// canvas windows land where the close animation already zoomed to, a move
+	// animation from their pre-overview spot would play the zoom twice
+	if (canvas_active(c->mon) && ISFAKETILED(c) && VISIBLEON(c, c->mon)) {
+		c->animation.running = false;
+		c->animation.should_animate = false;
+		c->animation.tagining = false;
+		c->animation.tagouting = false;
+		c->animation.action = MOVE;
+		client_set_finish_geometry(c);
+		canvas_apply_zoom_scale(c);
+		return;
+	}
 	if (c->animation.running && c->animation.action == MOVE) {
 		wlr_scene_node_set_position(&c->scene->node, c->animation.current.x,
 									c->animation.current.y);
