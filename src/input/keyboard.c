@@ -843,24 +843,28 @@ void handle_keyboard_key(struct wl_listener *listener, void *data) {
 		handled = 1;
 	}
 
-	/* Configured shortcuts keep priority while the workspace overview is open.
-	 * Only unmodified keys which did not match a binding act as navigation. */
-	if (wsov_intercepts_keyboard && !handled &&
-		event->state == WL_KEYBOARD_KEY_STATE_PRESSED && CLEANMASK(mods) == 0) {
-		for (i = 0; i < nsyms; i++) {
-			if (workspace_overview_handle_key(syms[i])) {
-				handled = 1;
-				break;
-			}
-		}
-	}
-
 	/* The workspace overview is modal. Presses which are not bindings and
 	 * are not handled by its navigation must not leak to a hidden client.
 	 * Mark the press so its matching release is swallowed without changing
 	 * the normal handling of keys which were already held before entry. */
 	if (wsov_intercepts_keyboard &&
 		event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+		/* Mark before navigation can move focus. client_notify_enter() excludes
+		 * consumed keycodes, so the held navigation key is not replayed to the
+		 * newly focused client. */
+		keyboard_mark_bound_key(keycode);
+
+		/* Configured shortcuts keep priority while the workspace overview is
+		 * open. Only unmodified keys which did not match a binding navigate. */
+		if (!handled && CLEANMASK(mods) == 0) {
+			for (i = 0; i < nsyms; i++) {
+				if (workspace_overview_handle_key(syms[i])) {
+					handled = 1;
+					break;
+				}
+			}
+		}
+
 		server.last_hold_keycode = 0;
 		group->nsyms = 0;
 		wl_event_source_timer_update(group->key_repeat_source, 0);
@@ -1039,7 +1043,7 @@ void reset_keyboard_layout(void) {
 
 	wlr_keyboard_set_keymap(keyboard, new_keymap);
 
-	wlr_keyboard_notify_modifiers(keyboard, depressed, latched, locked_mods, 0);
+	wlr_keyboard_notify_modifiers(keyboard, depressed, latched, locked_mods, current);
 	keyboard->modifiers.group = current; // Keep the same layout index
 
 	// Update seat
@@ -1057,8 +1061,8 @@ void reset_keyboard_layout(void) {
 		struct wlr_keyboard *tkb = (struct wlr_keyboard *)id->device_data;
 
 		wlr_keyboard_set_keymap(tkb, keyboard->keymap);
-		wlr_keyboard_notify_modifiers(tkb, depressed, latched, locked_mods, 0);
-		tkb->modifiers.group = 0;
+		wlr_keyboard_notify_modifiers(tkb, depressed, latched, locked_mods, current);
+		tkb->modifiers.group = current;
 	}
 
 	// Cleanup

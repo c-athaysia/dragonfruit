@@ -136,9 +136,16 @@ void wsov_detach_frame_listener(void) {
 }
 
 void workspace_overview_prepare_output_frame(Monitor *m) {
-	if (!workspace_overview_is_active_on(m))
+	if (!workspace_overview_is_active())
 		return;
-	if (wsov.frame_active && wsov.closing) {
+	/*
+	 * Live card nodes are shared scene nodes. Any output can commit them, not
+	 * just the monitor showing WSOV, so flush the common clip before every
+	 * output frame. Otherwise an inner scroller commit can be presented on
+	 * another monitor for one frame before the WSOV output refreshes it.
+	 */
+	if (wsov.frame_active && (wsov.closing || wsov.animating ||
+							  wsov.layout_animating || wsov.scroll_animating)) {
 		wsov_process_frame();
 		return;
 	}
@@ -317,7 +324,13 @@ void workspace_overview_layout_changed(Monitor *m) {
 		view_target_available && current_view_tag != previous_target;
 	if (view_target_available) {
 		wsov.target_tag = current_view_tag;
-		wsov.camera_tag = current_view_tag;
+		/*
+		 * Pointer hover may update the target and focus while the opening
+		 * animation runs, but the camera must stay anchored to the card whose
+		 * zoom originated the animation.
+		 */
+		if (!wsov.animating)
+			wsov.camera_tag = current_view_tag;
 		if (target_changed)
 			wsov.scroll_center_tag = current_view_tag;
 	}

@@ -205,7 +205,7 @@ It is formed by tag numbers `1`–`9`, optionally combined with `|`.
 | `workspace_overview_close` | - | Switch to the selected workspace and leave the workspace overview. |
 | `workspace_overview_select` | `left\|right\|up\|down` | Select the adjacent workspace preview in the workspace overview. |
 | `workspace_overview_kill` | - | Close the window whose preview is under the pointer in the workspace overview. |
-| `workspace_overview_drag` | `[replace\|move\|add]` | Start a click or a drag at the pointer in the workspace overview. See [custom bindings](/docs/window-management/overview#workspace-overview-bindings). |
+| `workspace_overview_drag` | `[replace\|move\|add]` | Start a click or a drag at the pointer in the workspace overview. See [custom bindings](../window-management/overview.md#workspace-overview-bindings). |
 | `togglejump` | - | Same as `canvas_jump`: the canvas overview with jump letters. |
 | `create_virtual_output` | - | Create a headless monitor (for VNC/Sunshine). |
 | `destroy_all_virtual_output` | - | Destroy all virtual monitors. |

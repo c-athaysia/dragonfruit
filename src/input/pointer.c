@@ -382,7 +382,7 @@ void toggle_hotarea(int32_t x_root, int32_t y_root) {
 	}
 
 	// Computes different hot-area coordinates for each hot corner.
-	unsigned hx, hy;
+	int32_t hx, hy;
 
 	switch (config.hotarea_corner) {
 	case BOTTOM_RIGHT: // Bottom-right corner
@@ -1603,7 +1603,9 @@ void pointer_focus(Client *c, struct wlr_surface *surface, double sx, double sy,
 	if (config.sloppyfocus && !server.start_drag_window && !server.seat->drag &&
 		c && time && c->scene && c->scene->node.enabled &&
 		!c->animation.tagining &&
-		surface != server.seat->pointer_state.focused_surface &&
+		(surface != server.seat->pointer_state.focused_surface ||
+		 (server.selected_monitor && server.selected_monitor->sel &&
+		  server.selected_monitor->sel != c)) &&
 		!client_is_unmanaged(c) && VISIBLEON(c, c->mon)) {
 		// no canvas_follow_focus here
 		// client_focus already calls it and returns early if already focused
