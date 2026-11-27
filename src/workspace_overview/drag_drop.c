@@ -852,6 +852,7 @@ void wsov_finish_drop(double x, double y) {
 		c->canvas_geom.x = canvas_x;
 		c->canvas_geom.y = canvas_y;
 		c->canvas_placed = true;
+		canvas_client_tags_changed(c, old_tags);
 	} else if (over) {
 		pointer_place_drag_tile_on(c, over->client);
 	}

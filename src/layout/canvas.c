@@ -2738,6 +2738,30 @@ void canvas_tag_camera_focus(Monitor *m, uint32_t t, Client *c) {
 		canvas_tag_cam_load(m);
 }
 
+// a window sent to an empty tag takes that tag's camera with it, so the tag
+// opens on the window and not on the empty spot it was left at
+void canvas_client_tags_changed(Client *c, uint32_t old_tags) {
+	Monitor *m = c->mon;
+	if (!m || !c->canvas_placed)
+		return;
+	uint32_t added = c->tags & ~old_tags & TAGMASK;
+	for (uint32_t t = 1; added && t < PERTAG_SLOTS; t++, added >>= 1) {
+		if (!(added & 1) || !m->pertag->cam_saved[t])
+			continue;
+		uint32_t bit = 1u << (t - 1);
+		bool empty = true;
+		Client *o;
+		wl_list_for_each(o, &server.clients, link) {
+			if (o != c && o->mon == m && (o->tags & bit)) {
+				empty = false;
+				break;
+			}
+		}
+		if (empty)
+			canvas_tag_camera_focus(m, t, c);
+	}
+}
+
 void canvas_wsov_end(Monitor *m) {
 	Client *c;
 	wl_list_for_each(c, &server.clients, link) {

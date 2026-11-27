@@ -1506,8 +1506,10 @@ int32_t tag_silent(const Arg *arg) {
 	if (!target_client)
 		return 0;
 
+	uint32_t old_tags = target_client->tags;
 	target_client->tags =
 		(arg->ui & TAG0_MASK) ? TAG0_MASK : (arg->ui & TAGMASK);
+	canvas_client_tags_changed(target_client, old_tags);
 	client_reparent_group(target_client);
 	wl_list_for_each(fc, &server.clients, link) {
 		if (fc && fc != target_client && target_client->tags & fc->tags &&
@@ -1900,7 +1902,9 @@ int32_t toggle_tag(const Arg *arg) {
 	}
 
 	if (newtags) {
+		uint32_t old_tags = sel->tags;
 		sel->tags = newtags;
+		canvas_client_tags_changed(sel, old_tags);
 		client_reparent_group(sel);
 		client_focus(client_focus_top(server.selected_monitor), 1);
 		arrange(server.selected_monitor, false, false);

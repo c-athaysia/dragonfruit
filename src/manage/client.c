@@ -3373,6 +3373,7 @@ void tag_client(const Arg *arg, Client *target_client) {
 		target_client->tags =
 			(arg->ui & TAG0_MASK) ? TAG0_MASK : (arg->ui & TAGMASK);
 		tags_changed = old_tags != target_client->tags;
+		canvas_client_tags_changed(target_client, old_tags);
 		client_reparent_group(target_client);
 		clear_fullscreen_for_incoming_tiled_client(target_client);
 		if (arg->ui & TAG0_MASK) {

@@ -108,6 +108,7 @@ void canvas_tag_camera(Monitor *m, uint32_t t, double *cx, double *cy,
 void canvas_cam_at(Monitor *m, double cx, double cy, double zoom,
 				   double *cam_x, double *cam_y);
 void canvas_tag_camera_focus(Monitor *m, uint32_t t, Client *c);
+void canvas_client_tags_changed(Client *c, uint32_t old_tags);
 
 // canvas_overview with jump letters on the windows
 int32_t canvas_jump(const Arg *arg);
