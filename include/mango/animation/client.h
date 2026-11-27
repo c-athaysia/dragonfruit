@@ -19,8 +19,6 @@ bool is_horizontal_right_stack_layout(Monitor *monitor);
 int32_t is_special_animation_rule(Client *client);
 void set_client_open_animation(Client *c, struct wlr_box geo);
 
-struct wlr_fbox scene_buffer_visible_box(struct wlr_scene_buffer *buffer,
-										 struct wlr_surface *surface);
 void scene_buffer_apply_effect(struct wlr_scene_buffer *buffer, int32_t sx,
 							   int32_t sy, void *data);
 void buffer_set_effect(Client *c, BufferData data,

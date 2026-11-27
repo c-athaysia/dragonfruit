@@ -2020,6 +2020,32 @@ static void canvas_scale_subsurfaces(struct wlr_scene_node *node, double z,
 	}
 }
 
+// the part of a surface a scene buffer still shows after the wlroots clip, in
+// surface px. wlroots crops a subsurface that runs past the window clip by
+// shrinking src_box, so a dest size from the whole surface stretched what was
+// left over the cut part (100px of a subsurface hanging off the right edge
+// drew 300px wide, past the border)
+static struct wlr_fbox
+scene_buffer_visible_box(struct wlr_scene_buffer *buffer,
+						 struct wlr_surface *surface) {
+	struct wlr_fbox vis = {0, 0, surface->current.width,
+						   surface->current.height};
+	struct wlr_fbox full, cur = buffer->src_box;
+	wlr_surface_get_buffer_source_box(surface, &full);
+	if (wlr_fbox_empty(&cur) || wlr_fbox_empty(&full))
+		return vis;
+	// same buffer to surface orientation wlroots uses for the crop
+	int32_t bw = surface->current.buffer_width;
+	int32_t bh = surface->current.buffer_height;
+	wlr_fbox_transform(&full, &full, surface->current.transform, bw, bh);
+	wlr_fbox_transform(&cur, &cur, surface->current.transform, bw, bh);
+	vis.x = (cur.x - full.x) / full.width * vis.width;
+	vis.y = (cur.y - full.y) / full.height * vis.height;
+	vis.width *= cur.width / full.width;
+	vis.height *= cur.height / full.height;
+	return vis;
+}
+
 static void canvas_scale_buffer(struct wlr_scene_buffer *buffer, int32_t sx,
 								int32_t sy, void *data) {
 	(void)sx;
