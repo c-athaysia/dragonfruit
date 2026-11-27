@@ -1122,10 +1122,17 @@ bool wsov_render_cell_part(struct wsov_cell *cell,
 	return true;
 }
 
-// opening and closing slide every canvas preview between its tag's real camera
-// and layout (progress 0, where the cell fills the screen) and the overview
-// framing (progress 1) so neither the windows nor the shader jump at the ends
+// opening and closing slide the preview the camera zooms from or to between
+// its tag's real camera and layout (progress 0, where the cell fills the
+// screen) and the overview framing (progress 1) so neither the windows nor
+// the shader jump at the ends. The other previews were never on screen, so
+// they sit at the overview framing the whole time.
+static double wsov_canvas_cell_blend(struct wsov_cell *cell, double e) {
+	return cell->tag == wsov.camera_tag ? e : 1.0;
+}
+
 static void wsov_canvas_cell_apply(struct wsov_cell *cell, double e) {
+	e = wsov_canvas_cell_blend(cell, e);
 	{
 		double z = cell->real_zoom * pow(cell->log_zoom / cell->real_zoom, e);
 		canvas_cam_at(wsov.mon, cell->real_cx + (cell->log_cx - cell->real_cx) * e,
@@ -1158,7 +1165,7 @@ void wsov_canvas_blend_cells(double e) {
 	for (int i = 0; i < wsov.cell_count; i++) {
 		struct wsov_cell *cell = &wsov.cells[i];
 		if (cell->log_zoom <= 0.0 || cell->real_zoom <= 0.0 ||
-			fabs(cell->canvas_blend - e) < 1e-4)
+			fabs(cell->canvas_blend - wsov_canvas_cell_blend(cell, e)) < 1e-4)
 			continue;
 		wsov_canvas_cell_apply(cell, e);
 	}
