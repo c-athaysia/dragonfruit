@@ -38,8 +38,6 @@ void wsov_destroy_drag_buffer(void) {
 	wsov.drag_width = 0;
 	wsov.drag_height = 0;
 	wsov.drag_bar_height = 0;
-	wsov.drag_source_width = 0;
-	wsov.drag_source_height = 0;
 	wsov.drag_preview_x = 0;
 	wsov.drag_preview_y = 0;
 }
@@ -314,8 +312,6 @@ static bool wsov_build_drag_buffer(struct wsov_item *item, double k) {
 	wsov.drag_bar_height = drag_built_bar = bar_height;
 	wsov.drag_width = drag_built_w = width;
 	wsov.drag_height = drag_built_h = height;
-	wsov.drag_source_width = item->box.width;
-	wsov.drag_source_height = item->box.height;
 	return true;
 }
 
@@ -324,7 +320,13 @@ bool wsov_create_drag_buffer(struct wsov_item *item) {
 	drag_k_anim = false;
 	struct wsov_cell *src = wsov_cell_for_tag(wsov.source_tag);
 	drag_ref_zoom = src ? src->canvas_zoom : 0.0;
-	return wsov_build_drag_buffer(item, 1.0);
+	if (!wsov_build_drag_buffer(item, 1.0))
+		return false;
+	// the grab offset is measured against this box, so keep it for the drag
+	// even when the source preview zooms and the image is rebuilt
+	wsov.drag_source_width = item->box.width;
+	wsov.drag_source_height = item->box.height;
+	return true;
 }
 
 void wsov_cancel_drag(void) {
