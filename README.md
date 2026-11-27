@@ -85,7 +85,7 @@ steps, running from a build tree, and troubleshooting.
 
 ## Community
 
-No community yet. (TODO: Discord server.)
+Join the dragonfruit discord server [here](https://discord.gg/dsZ6GY4XcG).
 
 ## Acknowledgements
 
