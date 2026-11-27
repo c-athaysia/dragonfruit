@@ -709,6 +709,7 @@ void wsov_layout_live_projection_impl(void) {
 			effect_scale =
 				fmin(item->render_scale_x * item_scale_x * view.scale_x,
 					 item->render_scale_y * item_scale_y * view.scale_y);
+			wsov_live_effects_set_border(entry->effects, item->border_width);
 			if (!wsov.mon ||
 				entry->effect_frame_serial != wsov.mon->frame_serial) {
 				double opacity = CLAMP_FLOAT(

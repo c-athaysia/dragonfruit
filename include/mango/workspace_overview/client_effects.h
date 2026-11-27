@@ -2,6 +2,7 @@
 #define MANGO_WORKSPACE_OVERVIEW_CLIENT_EFFECTS_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <wlr/util/box.h>
 
 #if defined(MANGO_SCENEFX)
@@ -21,6 +22,9 @@ struct wsov_live_effects;
 struct wsov_live_effects *
 wsov_live_effects_create(struct wlr_scene_tree *parent, struct Client *client);
 bool wsov_live_effects_has_border(struct wsov_live_effects *effects);
+// border width (logical px) the window has in its preview
+void wsov_live_effects_set_border(struct wsov_live_effects *effects,
+								  int32_t bw);
 void wsov_live_effects_apply_surface(struct wsov_live_effects *effects,
 									 struct wlr_scene_buffer *buffer,
 									 double scale);

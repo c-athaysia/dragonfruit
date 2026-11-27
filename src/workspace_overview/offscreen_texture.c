@@ -139,16 +139,17 @@ static bool wsov_canvas_client(const struct wsov_cell *cell, Client *c) {
 		   c->canvas_placed && !c->isfullscreen && !c->ismaximizescreen;
 }
 
-// box of a canvas window in its preview, false for anything not on the canvas
+// box and border of a canvas window in its preview, false for anything not
+// on the canvas
 static bool wsov_canvas_item_geom(const struct wsov_cell *cell,
-								  const struct wsov_item *item,
-								  struct wlr_box *geo) {
+								  struct wsov_item *item, struct wlr_box *geo) {
 	if (item->is_snapshot || !item->client ||
 		!wsov_canvas_client(cell, item->client))
 		return false;
 	*geo = canvas_preview_box(item->client, item->ov_x, item->ov_y,
 							  cell->canvas_cam_x, cell->canvas_cam_y,
 							  cell->canvas_zoom, cell->canvas_blend);
+	item->border_width = canvas_preview_bw(item->client, cell->canvas_zoom);
 	return true;
 }
 

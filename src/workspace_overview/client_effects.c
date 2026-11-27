@@ -13,6 +13,7 @@
 
 struct wsov_live_effects {
 	Client *client;
+	int32_t bw; // border of the window in its preview, at the preview's zoom
 	struct wlr_scene_shadow *shadow;
 	struct wlr_scene_blur *blur;
 	struct wlr_scene_rect *border;
@@ -75,7 +76,7 @@ static bool wsov_live_effects_layout_unchanged(
 	return wlr_box_equal(&effects->window_box, window_box) &&
 		   wlr_box_equal(&effects->monitor_clip, monitor_clip) &&
 		   effects->scale == scale &&
-		   effects->border_width == effects->client->bw &&
+		   effects->border_width == effects->bw &&
 		   effects->has_shadow == has_shadow && effects->has_blur == has_blur &&
 		   wsov_corners_equal(effects->corners, corners) &&
 		   memcmp(effects->color, color, sizeof(effects->color)) == 0;
@@ -96,7 +97,7 @@ static void wsov_live_effects_cache_layout(struct wsov_live_effects *effects,
 	effects->window_box = *window_box;
 	effects->monitor_clip = *monitor_clip;
 	effects->scale = scale;
-	effects->border_width = effects->client->bw;
+	effects->border_width = effects->bw;
 	effects->has_shadow = has_shadow;
 	effects->has_blur = has_blur;
 	effects->corners = corners;
@@ -112,6 +113,7 @@ wsov_live_effects_create(struct wlr_scene_tree *parent, struct Client *client) {
 	if (!effects)
 		return NULL;
 	effects->client = client;
+	effects->bw = (int32_t)client->bw;
 
 	if (config.shadows) {
 		effects->shadow =
@@ -136,6 +138,12 @@ wsov_live_effects_create(struct wlr_scene_tree *parent, struct Client *client) {
 	return effects;
 }
 
+void wsov_live_effects_set_border(struct wsov_live_effects *effects,
+								  int32_t bw) {
+	if (effects)
+		effects->bw = bw;
+}
+
 bool wsov_live_effects_has_border(struct wsov_live_effects *effects) {
 	return effects && effects->border;
 }
@@ -158,9 +166,9 @@ static void wsov_live_inner_update(struct wsov_live_effects *effects,
 								   bool enabled) {
 	Client *client = effects->client;
 	int32_t gap = 0;
-	int32_t iw = inner_ring_width((int32_t)client->bw, &gap);
-	int in = (int)lround((client->bw - iw) * scale);
-	int bw = MANGO_MAX(1, (int)lround(client->bw * scale));
+	int32_t iw = inner_ring_width((int32_t)effects->bw, &gap);
+	int in = (int)lround((effects->bw - iw) * scale);
+	int bw = MANGO_MAX(1, (int)lround(effects->bw * scale));
 	struct wlr_box ring = {window_box->x + in, window_box->y + in,
 						   window_box->width - 2 * in,
 						   window_box->height - 2 * in};
@@ -257,10 +265,10 @@ static void wsov_live_effects_update_impl(struct wsov_live_effects *effects,
 		bool enabled = config.blur && !client->no_blur;
 		bool optimized = client_blur_uses_wallpaper(client);
 		struct wlr_box blur_box = {
-			.x = window_box->x + (int)lround(client->bw * scale),
-			.y = window_box->y + (int)lround(client->bw * scale),
-			.width = window_box->width - (int)lround(2 * client->bw * scale),
-			.height = window_box->height - (int)lround(2 * client->bw * scale),
+			.x = window_box->x + (int)lround(effects->bw * scale),
+			.y = window_box->y + (int)lround(effects->bw * scale),
+			.width = window_box->width - (int)lround(2 * effects->bw * scale),
+			.height = window_box->height - (int)lround(2 * effects->bw * scale),
 		};
 		struct wlr_box visible = {0};
 		if (blur_box.width <= 0 || blur_box.height <= 0 ||
@@ -283,17 +291,17 @@ static void wsov_live_effects_update_impl(struct wsov_live_effects *effects,
 	}
 
 	if (effects->border) {
-		bool enabled = client->bw > 0;
+		bool enabled = effects->bw > 0;
 		struct wlr_box border_box = {0};
 		struct wlr_box inner = {0};
 		if (enabled &&
 			wlr_box_intersection(&border_box, window_box, monitor_clip)) {
-			int border_width = MANGO_MAX(1, (int)lround(client->bw * scale));
+			int border_width = MANGO_MAX(1, (int)lround(effects->bw * scale));
 			int32_t gap = 0;
-			int32_t iw = inner_ring_width((int32_t)client->bw, &gap);
+			int32_t iw = inner_ring_width((int32_t)effects->bw, &gap);
 			if (iw > 0)
 				border_width = MANGO_MAX(
-					1, (int)lround((client->bw - iw - gap) * scale));
+					1, (int)lround((effects->bw - iw - gap) * scale));
 			struct wlr_box window_inner = {
 				.x = window_box->x + border_width,
 				.y = window_box->y + border_width,
@@ -378,6 +386,12 @@ wsov_live_effects_create(struct wlr_scene_tree *parent, struct Client *client) {
 	(void)parent;
 	(void)client;
 	return NULL;
+}
+
+void wsov_live_effects_set_border(struct wsov_live_effects *effects,
+								  int32_t bw) {
+	(void)effects;
+	(void)bw;
 }
 
 bool wsov_live_effects_has_border(struct wsov_live_effects *effects) {
