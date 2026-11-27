@@ -1020,6 +1020,13 @@ bool wsov_render_cell_part(struct wsov_cell *cell,
 						   double buffer_scale) {
 	if (!target)
 		return false;
+	// opening and closing stretch a preview up to the whole screen, so draw it
+	// at the size it shows at: drawn at overview size, the shader's pixel-wide
+	// strokes and its zoom fade jumped the moment the overview opened and
+	// again when it closed (worse with more tags, smaller cells)
+	struct wsov_camera_view view;
+	if (wsov.mon && wsov_get_camera_view(wsov.progress, &view))
+		buffer_scale *= fmax(1.0, view.scale_x);
 	int buffer_w = MANGO_MAX(1, (int)lround(cell->buffer_w * buffer_scale));
 	int buffer_h = MANGO_MAX(1, (int)lround(cell->buffer_h * buffer_scale));
 	bool contents = target == cell->contents;
@@ -1095,7 +1102,6 @@ bool wsov_render_cell_part(struct wsov_cell *cell,
 	*render_frame = wsov.mon->frame_serial;
 	*render_revision = cell->content_revision;
 
-	struct wsov_camera_view view;
 	if (!had_buffer && wsov.mon && wsov_get_camera_view(wsov.progress, &view)) {
 		struct wlr_box cell_box = wsov_cell_layout_box(cell);
 		int content_x = (int)lround(
